@@ -1,0 +1,12 @@
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/.env
+backend/chromadb_store/
+backend/test_resume.txt
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+desktop.ini
+Thumbs.db
