@@ -4,7 +4,13 @@ import re
 from typing import Optional
 
 # Load spaCy model
-nlp = spacy.load("en_core_web_sm")
+_nlp = None
+
+def get_nlp():
+    global _nlp
+    if _nlp is None:
+        _nlp = spacy.load("en_core_web_sm")
+    return _nlp
 
 # Common tech skills list to match against
 TECH_SKILLS = [
@@ -52,7 +58,7 @@ def extract_phone(text: str) -> Optional[str]:
 
 def extract_name(text: str) -> Optional[str]:
     """Extract candidate name using spaCy NER."""
-    doc = nlp(text[:500])  # Check first 500 chars only
+    doc = get_nlp()(text[:500])  # Check first 500 chars only
     for ent in doc.ents:
         if ent.label_ == "PERSON":
             return ent.text

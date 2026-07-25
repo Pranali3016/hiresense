@@ -1,8 +1,6 @@
 import re
-import spacy
 from app.services.resume_parser import TECH_SKILLS
 
-nlp = spacy.load("en_core_web_sm")
 
 EXPERIENCE_PATTERNS = [
     r'(\d+)\+?\s*years?\s*of\s*experience',
