@@ -24,7 +24,7 @@ export default function Analyze() {
       const response = await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/analyze/resume`,
         formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 90000 }
       )
 
       // Save result and go to results page
@@ -32,7 +32,7 @@ export default function Analyze() {
       navigate('/results')
 
     } catch (err) {
-      setError('Something went wrong. Make sure your backend is running.')
+      if (err.code === 'ECONNABORTED') { setError('This is taking longer than usual. Please try again.') } else if (err.response) { setError(`Server error: ${err.response.status}. Please try again.`) } else { setError('Network issue — please check your connection and try again.') }
     } finally {
       setLoading(false)
     }
@@ -116,7 +116,7 @@ export default function Analyze() {
 
         {loading && (
           <div className="text-center text-sm text-gray-400 mt-4">
-            This takes 10-20 seconds. AI is reading your resume...
+            This can take up to a minute, especially on the first try. AI is reading your resume...
           </div>
         )}
       </div>
