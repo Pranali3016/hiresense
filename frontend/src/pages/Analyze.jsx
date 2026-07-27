@@ -22,7 +22,7 @@ export default function Analyze() {
       formData.append('job_description', jd)
 
       const response = await axios.post(
-        'http://localhost:8000/api/v1/analyze/resume',
+        `${import.meta.env.VITE_API_URL}/api/v1/analyze/resume`,
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       )

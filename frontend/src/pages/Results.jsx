@@ -24,7 +24,7 @@ export default function Results() {
     setSyllabus(null)
     setLoadingSyllabus(true)
     try {
-      const res = await axios.get(`http://localhost:8000/api/v1/syllabus/${skillLower}`)
+      const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/v1/syllabus/${skillLower}`)
       console.log('Syllabus response:', res.data)
       setSyllabus(res.data.syllabus)
     } catch (e) {
