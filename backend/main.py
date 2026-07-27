@@ -25,6 +25,6 @@ app.include_router(api_router, prefix="/api/v1")
 def root():
     return {"message": "HireSense API is running", "status": "ok"}
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "healthy"}
