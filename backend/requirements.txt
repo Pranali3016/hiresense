@@ -17,3 +17,4 @@ langchain-core
 langgraph
 groq
 httpx
+scikit-learn
