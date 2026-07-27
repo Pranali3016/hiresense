@@ -1,47 +1,55 @@
-from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 
-_model = None
-
-def get_model():
-    global _model
-    if _model is None:
-        _model = SentenceTransformer('all-MiniLM-L6-v2')
-    return _model
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute cosine similarity between two vectors."""
+    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+        return 0.0
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+
+def _get_tfidf_vectors(texts: list[str]) -> np.ndarray:
+    """Turn a list of texts into comparable word-importance vectors."""
+    vectorizer = TfidfVectorizer(stop_words='english')
+    vectors = vectorizer.fit_transform(texts)
+    return vectors.toarray()
+
 
 def semantic_match_score(resume_text: str, job_description: str) -> dict:
     """
-    Use sentence embeddings to compute semantic similarity
-    between resume and job description.
-    This is RAG — we embed both documents and find similarity.
+    Use TF-IDF (keyword-weighted) similarity to compute textual overlap
+    between resume and job description. Lightweight alternative to
+    embedding-based semantic search — no heavy ML models required.
     """
-    resume_embedding = get_model().encode(resume_text[:2000])
-    jd_embedding = get_model().encode(job_description[:2000])
-    overall_similarity = cosine_similarity(resume_embedding, jd_embedding)
+    vectors = _get_tfidf_vectors([resume_text[:2000], job_description[:2000]])
+    overall_similarity = cosine_similarity(vectors[0], vectors[1])
 
     resume_sentences = [s.strip() for s in resume_text.split('\n') if len(s.strip()) > 20][:20]
     jd_sentences = [s.strip() for s in job_description.split('\n') if len(s.strip()) > 20][:10]
 
     top_matches = []
-    for jd_sent in jd_sentences:
-        jd_emb = get_model().encode(jd_sent)
-        best_score = 0
-        best_resume_sent = ""
-        for res_sent in resume_sentences:
-            res_emb = get_model().encode(res_sent)
-            score = cosine_similarity(jd_emb, res_emb)
-            if score > best_score:
-                best_score = score
-                best_resume_sent = res_sent
-        if best_score > 0.3:
-            top_matches.append({
-                "jd_requirement": jd_sent[:100],
-                "resume_match": best_resume_sent[:100],
-                "similarity": round(best_score * 100, 1)
-            })
+
+    if resume_sentences and jd_sentences:
+        all_sentences = jd_sentences + resume_sentences
+        all_vectors = _get_tfidf_vectors(all_sentences)
+        jd_vectors = all_vectors[:len(jd_sentences)]
+        resume_vectors = all_vectors[len(jd_sentences):]
+
+        for i, jd_sent in enumerate(jd_sentences):
+            best_score = 0
+            best_resume_sent = ""
+            for j, res_sent in enumerate(resume_sentences):
+                score = cosine_similarity(jd_vectors[i], resume_vectors[j])
+                if score > best_score:
+                    best_score = score
+                    best_resume_sent = res_sent
+            if best_score > 0.15:
+                top_matches.append({
+                    "jd_requirement": jd_sent[:100],
+                    "resume_match": best_resume_sent[:100],
+                    "similarity": round(best_score * 100, 1)
+                })
 
     top_matches = sorted(top_matches, key=lambda x: x["similarity"], reverse=True)[:5]
     semantic_score = round(overall_similarity * 100, 1)
@@ -51,6 +59,7 @@ def semantic_match_score(resume_text: str, job_description: str) -> dict:
         "top_matches": top_matches,
         "interpretation": get_semantic_interpretation(semantic_score)
     }
+
 
 def get_semantic_interpretation(score: float) -> str:
     if score >= 70:

@@ -8,7 +8,6 @@ psycopg2-binary
 python-dotenv
 pymupdf
 spacy
-sentence-transformers
 chromadb
 langchain
 langchain-google-genai
