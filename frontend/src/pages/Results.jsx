@@ -1,162 +1,271 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import {
+  Award, Sparkles, CheckCircle2, AlertCircle, BookOpen, MessageSquare,
+  ArrowRight, RefreshCw, FileText, Briefcase, Calendar, ChevronRight, Layers, Zap
+} from 'lucide-react'
+import DashboardLayout from '../components/DashboardLayout'
 
 export default function Results() {
   const navigate = useNavigate()
   const [data, setData] = useState(null)
   const [selectedSkill, setSelectedSkill] = useState(null)
-  const [syllabus, setSyllabus] = useState(null)
-  const [loadingSyllabus, setLoadingSyllabus] = useState(false)
-  const [checkedTopics, setCheckedTopics] = useState({})
 
   useEffect(() => {
     const saved = localStorage.getItem('hiresense_result')
     if (!saved) return navigate('/analyze')
-    setData(JSON.parse(saved))
-    const savedChecks = localStorage.getItem('hiresense_checks')
-    if (savedChecks) setCheckedTopics(JSON.parse(savedChecks))
-  }, [])
-
-  const openSyllabus = async (skill) => {
-    const skillLower = skill.toLowerCase().trim()
-    setSelectedSkill(skill)
-    setSyllabus(null)
-    setLoadingSyllabus(true)
     try {
-      const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/v1/syllabus/${skillLower}`)
-      console.log('Syllabus response:', res.data)
-      setSyllabus(res.data.syllabus)
+      setData(JSON.parse(saved))
     } catch (e) {
-      console.log('Syllabus error:', e)
-      setSyllabus(null)
-    } finally {
-      setLoadingSyllabus(false)
+      navigate('/analyze')
     }
-  }
-
-  const toggleTopic = (key) => {
-    const updated = { ...checkedTopics, [key]: !checkedTopics[key] }
-    setCheckedTopics(updated)
-    localStorage.setItem('hiresense_checks', JSON.stringify(updated))
-  }
-
-  const getProgress = (sectionTitle) => {
-    if (!syllabus) return 0
-    const section = syllabus.sections?.find(s => s.title === sectionTitle)
-    if (!section) return 0
-    const total = section.topics.length
-    const done = section.topics.filter((_, i) =>
-      checkedTopics[`${selectedSkill}-${sectionTitle}-${i}`]
-    ).length
-    return total > 0 ? Math.round((done / total) * 100) : 0
-  }
+  }, [navigate])
 
   if (!data) return null
-  const { resume, job, analysis, roadmap } = data
+  const { resume = {}, job = {}, analysis = {}, roadmap = [] } = data
+
+  const overallScore = analysis.overall_score || 0
+  const skillsScore = analysis.skills_score || 0
+  const expScore = analysis.experience_score || 0
+  const semanticScore = analysis.semantic_score || 0
 
   const getScoreColor = (score) => {
-    if (score >= 70) return 'text-emerald-600'
-    if (score >= 50) return 'text-amber-500'
-    return 'text-red-500'
+    if (score >= 75) return 'text-emerald-400'
+    if (score >= 50) return 'text-amber-400'
+    return 'text-rose-400'
   }
 
-  const getScoreBg = (score) => {
-    if (score >= 70) return 'border-emerald-500'
-    if (score >= 50) return 'border-amber-400'
-    return 'border-red-400'
+  const getScoreBadge = (score) => {
+    if (score >= 75) return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+    if (score >= 50) return 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+    return 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+  }
+
+  const getVerdictLabel = (score) => {
+    if (score >= 75) return '🏆 High Match — Strong Callback Probability'
+    if (score >= 50) return '⚡ Moderate Match — Skill Gap Fix Recommended'
+    return '🎯 Low Match — Critical Skill Gaps Identified'
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-
-      <nav className="flex items-center justify-between px-8 py-4 border-b border-gray-100 bg-white">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-          <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-          <span className="font-semibold text-gray-900 text-lg">HireSense</span>
-        </div>
-        <button onClick={() => navigate('/analyze')} className="text-sm text-emerald-600 font-medium hover:underline">
-          Analyze another resume
+    <DashboardLayout
+      title="AI Job Match Report"
+      subtitle="Detailed resume-vs-job match score, skill breakdown, and tailored action plan"
+      action={
+        <button
+          onClick={() => navigate('/analyze')}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm shadow-emerald-600/20 transition flex items-center gap-1.5 whitespace-nowrap"
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>Analyze Another Job</span>
         </button>
-      </nav>
+      }
+    >
+      <div className="max-w-5xl space-y-6">
 
-      <div className="max-w-3xl mx-auto px-8 py-10">
+        {/* Executive Match Hero Card */}
+        <div className="bg-gradient-to-r from-gray-900 via-emerald-950 to-emerald-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 -mt-10 -mr-10 w-80 h-80 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Your analysis report</h1>
-          <p className="text-sm text-gray-400 mt-1">{job.title?.slice(0, 60)} · just now</p>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 mb-6 flex items-center gap-8 shadow-sm">
-          <div className={`w-24 h-24 rounded-full border-4 ${getScoreBg(analysis.overall_score)} flex flex-col items-center justify-center flex-shrink-0`}>
-            <span className={`text-3xl font-bold ${getScoreColor(analysis.overall_score)}`}>{analysis.overall_score}</span>
-            <span className="text-xs text-gray-400">/100</span>
-          </div>
-          <div className="flex-1">
-            <div className="font-semibold text-gray-900 mb-4">{analysis.verdict}</div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-500 w-28">Skills match</span>
-                <div className="flex-1 h-2 bg-gray-100 rounded-full">
-                  <div className="h-2 bg-emerald-500 rounded-full" style={{width: `${analysis.skills_score}%`}}></div>
-                </div>
-                <span className="text-xs font-medium text-gray-700 w-10">{analysis.skills_score}%</span>
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-3 max-w-xl">
+              <div className="inline-flex items-center gap-2 bg-emerald-500/20 text-emerald-300 text-xs font-semibold px-3 py-1 rounded-full border border-emerald-500/30">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Verified AI Match Evaluation</span>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-500 w-28">Experience</span>
-                <div className="flex-1 h-2 bg-gray-100 rounded-full">
-                  <div className="h-2 bg-violet-500 rounded-full" style={{width: `${analysis.experience_score}%`}}></div>
-                </div>
-                <span className="text-xs font-medium text-gray-700 w-10">{analysis.experience_score}%</span>
+
+              <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight leading-snug">
+                {job.title || 'Target Job Position'}
+              </h1>
+
+              <div className="inline-block px-3 py-1 rounded-full text-xs font-bold border border-white/10 bg-white/10 text-emerald-200">
+                {getVerdictLabel(overallScore)}
               </div>
+
+              <p className="text-xs sm:text-sm text-emerald-100/80 font-medium">
+                Analysis complete. Evaluated against {job.required_skills?.length || 0} core job requirements.
+              </p>
+            </div>
+
+            {/* Overall Score Circle Gauge */}
+            <div className="bg-slate-950/60 border border-emerald-500/30 backdrop-blur-xl rounded-3xl p-6 flex flex-col items-center justify-center shrink-0 w-36 h-36 mx-auto md:mx-0 shadow-2xl">
+              <div className={`text-4xl font-black ${getScoreColor(overallScore)}`}>
+                {overallScore}%
+              </div>
+              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-1">Match Score</span>
             </div>
           </div>
         </div>
 
+        {/* 3-Metric Breakdown Bar Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="text-gray-500 uppercase tracking-wider">Skills Overlap</span>
+              <span className="text-emerald-600">{skillsScore}%</span>
+            </div>
+            <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-2.5 bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${skillsScore}%` }} />
+            </div>
+            <p className="text-[11px] text-gray-400">{analysis.matched_skills?.length || 0} skills matched</p>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="text-gray-500 uppercase tracking-wider">Experience Alignment</span>
+              <span className="text-blue-600">{expScore}%</span>
+            </div>
+            <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-2.5 bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${expScore}%` }} />
+            </div>
+            <p className="text-[11px] text-gray-400">{resume.experience_years || 0} years vs required</p>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="text-gray-500 uppercase tracking-wider">Semantic Vector Score</span>
+              <span className="text-purple-600">{semanticScore}%</span>
+            </div>
+            <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-2.5 bg-purple-500 rounded-full transition-all duration-500" style={{ width: `${semanticScore}%` }} />
+            </div>
+            <p className="text-[11px] text-gray-400">{analysis.semantic_interpretation || 'Deep embedding similarity'}</p>
+          </div>
+        </div>
+
+        {/* AI Executive Feedback Summary */}
         {analysis.explanation && (
-          <div className="bg-violet-50 border border-violet-100 rounded-2xl p-6 mb-6">
-            <div className="text-xs font-medium text-violet-600 mb-2">AI ANALYSIS</div>
-            <p className="text-gray-700 text-sm leading-relaxed">{analysis.explanation}</p>
+          <div className="bg-gradient-to-r from-emerald-50/60 to-teal-50/40 border border-emerald-200/80 rounded-3xl p-6 shadow-sm space-y-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 uppercase tracking-wider">
+              <Sparkles className="w-4 h-4 text-emerald-600" />
+              <span>AI Executive Synthesis</span>
+            </div>
+            <p className="text-gray-800 text-xs sm:text-sm leading-relaxed font-medium">
+              {analysis.explanation}
+            </p>
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div className="bg-white rounded-2xl p-5 shadow-sm">
-            <div className="text-xs font-medium text-emerald-600 mb-3">MATCHED ({analysis.matched_skills.length})</div>
-            <div className="flex flex-wrap gap-2">
-              {analysis.matched_skills.map(s => (
-                <span key={s} className="bg-emerald-50 text-emerald-700 text-xs px-3 py-1 rounded-full">{s}</span>
+        {/* Matched Skills vs Skill Gaps Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+          {/* Matched Skills */}
+          <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  <CheckCircle2 className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Matched Skills</h2>
+                  <p className="text-xs text-gray-400">Verified strengths present in your resume</p>
+                </div>
+              </div>
+              <span className="text-xs font-extrabold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full border border-emerald-200">
+                {analysis.matched_skills?.length || 0} Skills
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-2">
+              {(!analysis.matched_skills || analysis.matched_skills.length === 0) && (
+                <div className="text-xs text-gray-400 py-4">No matching skills detected in resume.</div>
+              )}
+              {analysis.matched_skills?.map((s) => (
+                <span
+                  key={s}
+                  className="text-xs bg-emerald-50 text-emerald-700 font-semibold px-3 py-1.5 rounded-xl border border-emerald-200/60 capitalize flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>{s}</span>
+                </span>
               ))}
             </div>
           </div>
-          <div className="bg-white rounded-2xl p-5 shadow-sm">
-            <div className="text-xs font-medium text-red-500 mb-3">MISSING ({analysis.missing_skills.length})</div>
-            <div className="flex flex-wrap gap-2">
-              {analysis.missing_skills.map(s => (
-                <span key={s} className="bg-red-50 text-red-600 text-xs px-3 py-1 rounded-full">{s}</span>
+
+          {/* Skill Gaps / Missing Requirements */}
+          <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+                  <AlertCircle className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Skill Gaps Identified</h2>
+                  <p className="text-xs text-gray-400">Missing requirements needed for full match</p>
+                </div>
+              </div>
+              <span className="text-xs font-extrabold bg-rose-50 text-rose-700 px-3 py-1 rounded-full border border-rose-200">
+                {analysis.missing_skills?.length || 0} Gaps
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-2">
+              {(!analysis.missing_skills || analysis.missing_skills.length === 0) && (
+                <div className="text-xs text-emerald-600 font-bold py-4">Awesome! Zero skill gaps found for this role.</div>
+              )}
+              {analysis.missing_skills?.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSelectedSkill(s)}
+                  className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold px-3 py-1.5 rounded-xl border border-rose-200/60 capitalize flex items-center gap-1.5 transition"
+                  title="Click to view learning syllabus"
+                >
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
+                  <span>{s}</span>
+                  <span className="text-[10px] bg-white text-rose-600 font-bold px-1.5 py-0.5 rounded border border-rose-200">
+                    Fix →
+                  </span>
+                </button>
               ))}
             </div>
           </div>
         </div>
 
+        {/* Interactive AI Skill Learning Roadmap */}
         {roadmap && roadmap.length > 0 && (
-          <div className="bg-white rounded-2xl p-5 shadow-sm mb-6">
-            <div className="text-xs font-medium text-gray-400 mb-1">YOUR LEARNING ROADMAP</div>
-            <p className="text-xs text-gray-400 mb-4">Click any skill to see full syllabus with checklist and interview questions</p>
+          <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Tailored Skill Growth Roadmap</h2>
+                <p className="text-xs text-gray-400">Click any skill module to access structured syllabi and practice questions</p>
+              </div>
+              <span className="text-xs bg-emerald-50 text-emerald-700 font-bold px-3 py-1 rounded-full border border-emerald-200">
+                AI Roadmap Ready
+              </span>
+            </div>
+
             <div className="space-y-3">
               {roadmap.map((item) => (
                 <div
                   key={item.skill}
-                  onClick={() => openSyllabus(item.skill)}
-                  className="flex items-center justify-between p-4 border border-gray-100 rounded-xl cursor-pointer hover:border-emerald-300 hover:bg-emerald-50 transition"
+                  className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gray-50/70 hover:bg-emerald-50/40 border border-gray-100 hover:border-emerald-200 rounded-2xl transition-all duration-200 gap-3"
                 >
-                  <div>
-                    <div className="font-medium text-gray-900 capitalize">{item.skill}</div>
-                    <div className="text-xs text-gray-400 mt-0.5">{item.why_important}</div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-gray-900 capitalize group-hover:text-emerald-700 transition">
+                        {item.skill}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 font-medium">
+                      {item.why_important || 'Essential competency for target job posting requirements'}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-                    <span className="text-xs bg-amber-50 text-amber-600 px-2 py-1 rounded-full">{item.weeks_needed} weeks</span>
-                    <span className="text-xs text-emerald-600 font-medium">View syllabus</span>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => navigate(`/syllabus/${item.skill.toLowerCase().trim()}`)}
+                      className="text-xs bg-white hover:bg-emerald-600 hover:text-white text-gray-700 font-semibold px-3 py-2 rounded-xl border border-gray-200/80 shadow-xs transition flex items-center gap-1"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span>Syllabus</span>
+                    </button>
+                    <button
+                      onClick={() => navigate(`/interview/${item.skill.toLowerCase().trim()}`)}
+                      className="text-xs bg-white hover:bg-purple-600 hover:text-white text-gray-700 font-semibold px-3 py-2 rounded-xl border border-gray-200/80 shadow-xs transition flex items-center gap-1"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Interview Prep</span>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -164,228 +273,89 @@ export default function Results() {
           </div>
         )}
 
-        <div className="bg-white rounded-2xl p-5 shadow-sm mb-6">
-          <div className="text-xs font-medium text-gray-400 mb-3">CANDIDATE INFO</div>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-gray-400">Email: </span><span className="text-gray-700">{resume.email || 'Not found'}</span></div>
-            <div><span className="text-gray-400">Experience: </span><span className="text-gray-700">{resume.experience_years} years</span></div>
-            <div><span className="text-gray-400">Skills found: </span><span className="text-gray-700">{resume.skills_found?.length}</span></div>
-            <div><span className="text-gray-400">Required: </span><span className="text-gray-700">{job.required_skills?.length} skills</span></div>
+        {/* Candidate & Job Audit Metadata Card */}
+        <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm space-y-3">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">Candidate & Audit Metadata</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+              <span className="text-gray-400 block mb-0.5">Candidate Email</span>
+              <span className="font-bold text-gray-800 truncate block">{resume.email || 'From Profile'}</span>
+            </div>
+            <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+              <span className="text-gray-400 block mb-0.5">Experience</span>
+              <span className="font-bold text-gray-800">{resume.experience_years || 0} Years</span>
+            </div>
+            <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+              <span className="text-gray-400 block mb-0.5">Resume Skills</span>
+              <span className="font-bold text-gray-800">{resume.skills_found?.length || 0} Found</span>
+            </div>
+            <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100">
+              <span className="text-gray-400 block mb-0.5">Job Requirements</span>
+              <span className="font-bold text-gray-800">{job.required_skills?.length || 0} Required</span>
+            </div>
           </div>
         </div>
 
-        <div className="text-center">
-          <button onClick={() => navigate('/analyze')} className="bg-emerald-600 text-white px-8 py-3 rounded-xl font-medium hover:bg-emerald-700 transition">
-            Analyze another job
+        {/* Action Footer Button */}
+        <div className="text-center pt-4">
+          <button
+            onClick={() => navigate('/analyze')}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-8 py-3.5 rounded-2xl shadow-lg shadow-emerald-600/20 transition transform hover:scale-105 inline-flex items-center gap-2"
+          >
+            <Zap className="w-4 h-4 fill-current" />
+            <span>Analyze Another Job Posting →</span>
           </button>
         </div>
+
       </div>
 
+      {/* Skill Modal Drawer */}
       {selectedSkill && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           onClick={() => setSelectedSkill(null)}
         >
           <div
-            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
+            className="bg-white border border-gray-100 rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
-              <div>
-                <div className="font-semibold text-gray-900 text-lg capitalize">{selectedSkill} — Full Syllabus</div>
-                {syllabus && (
-                  <div className="text-xs text-gray-400">{syllabus.total_duration} · {syllabus.daily_time}</div>
-                )}
-              </div>
-              <button onClick={() => setSelectedSkill(null)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">x</button>
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="font-bold text-gray-900 text-base capitalize">{selectedSkill}</div>
+              <button onClick={() => setSelectedSkill(null)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">
+                ×
+              </button>
             </div>
 
-            {loadingSyllabus && (
-              <div className="flex items-center justify-center py-20">
-                <div className="text-sm text-gray-400">Loading syllabus...</div>
-              </div>
-            )}
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Launch your tailored learning path or practice technical interview questions for <strong className="capitalize">{selectedSkill}</strong>.
+            </p>
 
-            {syllabus && (
-              <div className="px-6 py-4">
-
-                <div className="bg-emerald-50 rounded-xl px-4 py-3 mb-5">
-                  <div className="text-xs font-medium text-emerald-600 mb-1">WHY LEARN THIS</div>
-                  <p className="text-sm text-gray-700">{syllabus.why}</p>
+            <div className="space-y-2 pt-1">
+              <button
+                onClick={() => navigate(`/syllabus/${selectedSkill.toLowerCase().trim()}`)}
+                className="w-full flex items-center justify-between p-3.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-2xl text-xs font-bold transition"
+              >
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-emerald-600" />
+                  <span>View Structured Syllabus</span>
                 </div>
+                <ArrowRight className="w-4 h-4 text-emerald-600" />
+              </button>
 
-                <div className="mb-5">
-                  <div className="text-xs font-medium text-gray-400 mb-3">FREE RESOURCES — FOLLOW THESE IN ORDER</div>
-                  <div className="space-y-2">
-                    {syllabus.free_resources?.map((r, i) => (
-                      <div
-                        key={i}
-                        onClick={() => window.open(r.url, '_blank')}
-                        className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-emerald-300 hover:bg-emerald-50 transition cursor-pointer group"
-                      >
-                        <div>
-                          <div className="text-sm font-medium text-gray-800 group-hover:text-emerald-700">{r.title}</div>
-                          <div className="text-xs text-gray-400 mt-0.5">{r.duration} · {r.covers}</div>
-                        </div>
-                        <span className="text-xs text-emerald-600 flex-shrink-0 ml-3">Open</span>
-                      </div>
-                    ))}
-                  </div>
+              <button
+                onClick={() => navigate(`/interview/${selectedSkill.toLowerCase().trim()}`)}
+                className="w-full flex items-center justify-between p-3.5 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 rounded-2xl text-xs font-bold transition"
+              >
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-purple-600" />
+                  <span>Practice Interview Questions</span>
                 </div>
-
-                {syllabus.top_interview_topics && (
-                  <div className="mb-5 bg-amber-50 rounded-xl px-4 py-3">
-                    <div className="text-xs font-medium text-amber-600 mb-2">TOP INTERVIEW TOPICS — FOCUS ON THESE FIRST</div>
-                    <div className="flex flex-wrap gap-2">
-                      {syllabus.top_interview_topics.map((t, i) => (
-                        <span key={i} className="text-xs bg-white text-amber-700 border border-amber-200 px-2 py-1 rounded-full">{t}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="text-xs font-medium text-gray-400 mb-3">
-                  COMPLETE SYLLABUS — TICK TOPICS AS YOU FINISH
-                </div>
-
-                <div className="space-y-4">
-                  {syllabus.sections?.map((section, si) => {
-                    const progress = getProgress(section.title)
-                    return (
-                      <div key={si} className="border border-gray-100 rounded-xl overflow-hidden">
-
-                        <div className="bg-gray-50 px-4 py-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="font-medium text-gray-900 text-sm">{section.title}</div>
-                            <span className="text-xs text-gray-400 flex-shrink-0 ml-2">{section.duration}</span>
-                          </div>
-                          <div className="text-xs text-gray-400 mb-2">{section.description}</div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 bg-gray-200 rounded-full">
-                              <div
-                                className="h-1.5 bg-emerald-500 rounded-full transition-all"
-                                style={{width: `${progress}%`}}
-                              ></div>
-                            </div>
-                            <span className="text-xs text-gray-400">{progress}% done</span>
-                          </div>
-                        </div>
-
-                        <div className="px-4 py-3">
-                          <div className="text-xs font-medium text-gray-400 mb-2">TOPICS</div>
-                          <div className="space-y-2">
-                            {section.topics.map((topic, ti) => {
-                              const key = `${selectedSkill}-${section.title}-${ti}`
-                              const topicName = typeof topic === 'object' ? topic.name : topic
-                              const stars = typeof topic === 'object' ? topic.stars : null
-                              const interviewNote = typeof topic === 'object' ? topic.interview_note : null
-                              return (
-                                <div
-                                  key={ti}
-                                  onClick={() => toggleTopic(key)}
-                                  className="flex items-start gap-3 cursor-pointer group py-1"
-                                >
-                                  <div className={`w-4 h-4 rounded border flex-shrink-0 mt-1 flex items-center justify-center transition ${checkedTopics[key] ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 group-hover:border-emerald-400'}`}>
-                                    {checkedTopics[key] && (
-                                      <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                      </svg>
-                                    )}
-                                  </div>
-                                  <div className="flex-1">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className={`text-sm transition ${checkedTopics[key] ? 'line-through text-gray-300' : 'text-gray-700'}`}>
-                                        {topicName}
-                                      </span>
-                                      {stars && (
-                                        <span className="text-xs text-amber-400">{'⭐'.repeat(stars)}</span>
-                                      )}
-                                    </div>
-                                    {interviewNote && !checkedTopics[key] && (
-                                      <div className="text-xs text-violet-500 mt-0.5">💼 {interviewNote}</div>
-                                    )}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-
-                          {section.practice && section.practice.length > 0 && (
-                            <div className="mt-4 pt-3 border-t border-gray-100">
-                              <div className="text-xs font-medium text-violet-600 mb-2">PRACTICE TASKS</div>
-                              {section.practice.map((p, pi) => (
-                                <div key={pi} className="flex items-start gap-2 mb-1.5">
-                                  <span className="text-violet-400 flex-shrink-0 mt-0.5 text-xs">-</span>
-                                  <span className="text-xs text-gray-600 font-mono">{p}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {section.interview_questions && section.interview_questions.length > 0 && (
-                            <div className="mt-4 pt-3 border-t border-gray-100">
-                              <div className="text-xs font-medium text-amber-600 mb-2">INTERVIEW QUESTIONS FOR THIS SECTION</div>
-                              {section.interview_questions.map((q, qi) => (
-                                <div key={qi} className="flex items-start gap-2 mb-1.5">
-                                  <span className="text-amber-500 flex-shrink-0 text-xs font-bold">Q.</span>
-                                  <span className="text-xs text-gray-600">{q}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {syllabus.projects && (
-                  <div className="mt-5">
-                    <div className="text-xs font-medium text-gray-400 mb-3">PROJECTS TO BUILD</div>
-                    <div className="space-y-2">
-                      {syllabus.projects.map((p, i) => (
-                        <div key={i} className="border border-gray-100 rounded-xl p-3">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.level === 'Beginner' ? 'bg-emerald-50 text-emerald-700' : p.level === 'Intermediate' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
-                              {p.level}
-                            </span>
-                            <span className="text-sm font-medium text-gray-900">{p.name}</span>
-                          </div>
-                          <p className="text-xs text-gray-500">{p.description}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {syllabus.final_learning_order && (
-                  <div className="mt-5 bg-violet-50 rounded-xl px-4 py-3">
-                    <div className="text-xs font-medium text-violet-600 mb-2">FINAL LEARNING ORDER — FOLLOW THIS SEQUENCE</div>
-                    <div className="space-y-1">
-                      {syllabus.final_learning_order.map((item, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <span className="text-xs text-violet-400 font-bold w-5">{i+1}.</span>
-                          <span className="text-xs text-gray-700">{item}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="mt-5">
-                  <button
-                    onClick={() => setSelectedSkill(null)}
-                    className="w-full bg-emerald-600 text-white py-3 rounded-xl font-medium hover:bg-emerald-700 transition"
-                  >
-                    Got it — start learning
-                  </button>
-                </div>
-
-              </div>
-            )}
+                <ArrowRight className="w-4 h-4 text-purple-600" />
+              </button>
+            </div>
           </div>
         </div>
       )}
-    </div>
+    </DashboardLayout>
   )
 }
