@@ -18,3 +18,8 @@ langgraph
 groq
 httpx
 scikit-learn
+google-genai
+google-api-python-client
+passlib[bcrypt]
+python-jose[cryptography]
+email-validator

@@ -42,12 +42,35 @@ def extract_seniority(text: str) -> str:
                 return level
     return "mid"
 
+ROLE_KEYWORDS = [
+    "engineer", "developer", "analyst", "scientist", "manager", "architect",
+    "designer", "specialist", "consultant", "intern", "lead", "director",
+    "administrator", "programmer", "researcher", "coordinator"
+]
+
+LABEL_PATTERN = r'^(?:job\\s*title|position|role|title)\\s*[:\\-]\\s*(.+)$'
+
+
 def extract_job_title(text: str) -> str:
-    """Extract job title from first 3 lines of JD."""
+    """Extract job title. Tries an explicit label first (e.g. 'Job Title: ...'),
+    then scans early lines for a common role keyword, then falls back to the
+    first non-empty line. Handles JDs with no company name or title header."""
     lines = [line.strip() for line in text.split('\n') if line.strip()]
-    if lines:
-        return lines[0][:100]
-    return "Unknown Role"
+    if not lines:
+        return "Unknown Role"
+
+    for line in lines[:15]:
+        match = re.match(LABEL_PATTERN, line, re.IGNORECASE)
+        if match:
+            candidate = match.group(1).strip()
+            if candidate:
+                return candidate[:100]
+
+    for line in lines[:15]:
+        if len(line) <= 80 and any(kw in line.lower() for kw in ROLE_KEYWORDS):
+            return line[:100]
+
+    return lines[0][:100]
 
 def parse_jd(text: str) -> dict:
     """Main function - parse job description."""

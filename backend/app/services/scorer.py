@@ -1,3 +1,4 @@
+import re
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -53,12 +54,12 @@ Candidate Experience: {experience_years} years
 Required Experience: {required_experience} years
 
 Write a 3-4 sentence analysis that:
-1. States the overall match clearly and honestly
+1. States the overall match score, using EXACTLY {overall_score} as given above -- do not calculate, estimate, or state a different number
 2. Highlights the strongest matching skills
 3. Points out the most critical missing skills
 4. Gives one specific actionable tip to improve the score
 
-Be direct, encouraging, and specific. Write in paragraph form. No bullet points."""
+Be direct, encouraging, and specific. Write in paragraph form. No bullet points. You must use the exact score {overall_score} provided -- never invent or recompute your own score."""
         )
         chain = prompt | llm | StrOutputParser()
         explanation = chain.invoke({
@@ -69,7 +70,11 @@ Be direct, encouraging, and specific. Write in paragraph form. No bullet points.
             "experience_years": resume_data.get("experience_years", 0),
             "required_experience": jd_data.get("required_experience_years", 0)
         })
-        return explanation.strip()
+        explanation = explanation.strip()
+        # Safety net: force-replace any score Groq wrote with the real computed score,
+        # in case it ignores instructions and states a different number
+        explanation = re.sub(r'\d+(\.\d+)?\s*/\s*100', f'{overall_score}/100', explanation)
+        return explanation
     except Exception as e:
         return generate_rule_based_explanation(jd_data, matched_skills, missing_skills, overall_score)
 

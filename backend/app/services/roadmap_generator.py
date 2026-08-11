@@ -133,7 +133,7 @@ def generate_roadmap(missing_skills: list) -> list:
     """Generate dynamic roadmap for any list of missing skills."""
     roadmap = []
 
-    for skill in missing_skills[:5]:
+    for skill in missing_skills:
         skill_lower = skill.lower()
 
         meta = SKILL_METADATA.get(skill_lower, {

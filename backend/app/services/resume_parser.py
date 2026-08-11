@@ -20,7 +20,7 @@ TECH_SKILLS = [
     "tensorflow", "pytorch", "keras", "scikit-learn", "pandas", "numpy",
     "docker", "kubernetes", "aws", "gcp", "azure", "git", "github",
     "postgresql", "mysql", "mongodb", "redis", "elasticsearch",
-    "langchain", "openai", "huggingface", "lstm", "cnn", "transformer",
+    "langchain", "openai", "huggingface", "lstm", "cnn", "transformer", "llm", "rag", "genai", "generative ai",
     "rest api", "graphql", "microservices", "agile", "scrum",
     "data analysis", "data science", "artificial intelligence",
     "neural network", "reinforcement learning", "mlops",
@@ -28,11 +28,14 @@ TECH_SKILLS = [
 ]
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract all text from a PDF file."""
+    """Extract all text from a PDF file or raw text bytes."""
     text = ""
-    with fitz.open(stream=file_bytes, filetype="pdf") as doc:
-        for page in doc:
-            text += page.get_text()
+    try:
+        with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+            for page in doc:
+                text += page.get_text()
+    except Exception:
+        text = file_bytes.decode('utf-8', errors='ignore')
     return text.strip()
 
 def extract_skills(text: str) -> list[str]:

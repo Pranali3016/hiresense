@@ -56,9 +56,6 @@ def compile_output_node(state: AgentState) -> AgentState:
     """Agent final step — compile all results into final output"""
     print("Agent: Compiling final output...")
     
-    skill_score = state["score_data"].get("skills_score", 0)
-    semantic_score = state["rag_data"].get("semantic_score", 0)
-    combined_score = round((skill_score * 0.6) + (semantic_score * 0.4), 1)
     
     final_output = {
         "success": True,
@@ -77,7 +74,6 @@ def compile_output_node(state: AgentState) -> AgentState:
         },
         "analysis": {
             **state["score_data"],
-            "overall_score": combined_score,
             "semantic_score": state["rag_data"].get("semantic_score"),
             "semantic_interpretation": state["rag_data"].get("interpretation"),
             "top_semantic_matches": state["rag_data"].get("top_matches", [])
