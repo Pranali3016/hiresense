@@ -20,6 +20,7 @@ httpx
 scikit-learn
 google-genai
 google-api-python-client
-passlib[bcrypt]
+bcrypt>=4.0.1
+passlib
 python-jose[cryptography]
 email-validator

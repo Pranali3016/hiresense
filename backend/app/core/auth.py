@@ -1,22 +1,25 @@
 from datetime import datetime, timedelta
-from passlib.context import CryptContext
+import bcrypt
 from jose import jwt
 from app.core.config import settings
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 
 
 def hash_password(plain_password: str) -> str:
-    """Scramble a plain password into an unreadable hash before storing it."""
-    return pwd_context.hash(plain_password)
+    """Scramble a plain password into an unreadable bcrypt hash before storing it."""
+    pwd_bytes = plain_password.encode("utf-8")
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Check if a plain password matches a stored hash, without ever un-scrambling it."""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Check if a plain password matches a stored bcrypt hash."""
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def create_access_token(user_id: int, email: str) -> str:
