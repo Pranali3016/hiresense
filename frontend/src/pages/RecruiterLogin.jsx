@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import axios from 'axios'
 import { Users, Search, BarChart3, MessageSquare, Mail, Lock, Eye, EyeOff } from 'lucide-react'
+import { validateEmail } from '../utils/validation'
 
 const FEATURES = [
   { icon: Search, title: 'AI Candidate Matching' },
@@ -19,7 +20,9 @@ export default function RecruiterLogin() {
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async () => {
-    if (!email || !password) return setError('Please enter your email and password')
+    const emailCheck = validateEmail(email)
+    if (!emailCheck.valid) return setError(emailCheck.error)
+    if (!password) return setError('Please enter your password.')
     setError('')
     setLoading(true)
     try {
@@ -39,10 +42,15 @@ export default function RecruiterLogin() {
       localStorage.setItem('hiresense_role', res.data.role)
       navigate('/recruiter/dashboard')
     } catch (err) {
-      if (err.response?.status === 401) {
-        setError(err.response.data?.detail || 'Incorrect email or password')
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail
+        if (typeof detail === 'string') setError(detail)
+        else if (Array.isArray(detail)) setError(detail.map(d => d.msg || d.message || JSON.stringify(d)).join(', '))
+        else setError(JSON.stringify(detail))
+      } else if (err.message) {
+        setError(`Connection error: ${err.message}. Please verify the server is running.`)
       } else {
-        setError('Something went wrong. Please try again.')
+        setError('Incorrect email or password. Please try again.')
       }
     } finally {
       setLoading(false)

@@ -1,7 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import axios from 'axios'
-import { Users, Search, BarChart3, MessageSquare, User, Mail, Lock, Eye, EyeOff } from 'lucide-react'
+import {
+  Users, Search, BarChart3, MessageSquare, User, Mail, Lock, Eye, EyeOff,
+  Sparkles, CheckCircle2, ArrowRight, ArrowLeft, AlertCircle, Check
+} from 'lucide-react'
+import { evaluatePassword, validateEmail } from '../utils/validation'
 
 const FEATURES = [
   { icon: Search, title: 'AI Candidate Matching' },
@@ -22,19 +26,32 @@ export default function RecruiterSignup() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Live password strength evaluation
+  const pwdStrength = useMemo(() => evaluatePassword(password), [password])
+
   const handleSubmit = async () => {
-    if (!name.trim()) return setError('Please enter your full name')
-    if (!email || !password) return setError('Please enter your email and password')
-    if (password.length < 6) return setError('Password must be at least 6 characters')
-    if (password !== confirmPassword) return setError('Passwords do not match')
-    if (!agreed) return setError('Please agree to the Terms of Service and Privacy Policy')
+    if (!name.trim()) return setError('Please enter your full name.')
+
+    // Validate email domain and typos (e.g. gmail.comm)
+    const emailCheck = validateEmail(email)
+    if (!emailCheck.valid) {
+      return setError(emailCheck.error)
+    }
+
+    if (!password) return setError('Please enter a password.')
+    if (password.length < 8) return setError('Password must be at least 8 characters long.')
+    if (!pwdStrength.checks.hasNumber || (!pwdStrength.checks.hasUpper && !pwdStrength.checks.hasLower)) {
+      return setError('Please use a stronger password with both letters and numbers.')
+    }
+    if (password !== confirmPassword) return setError('Passwords do not match.')
+    if (!agreed) return setError('Please agree to the Terms of Service & Privacy Policy.')
 
     setError('')
     setLoading(true)
     try {
       const res = await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/auth/signup`,
-        { name, email, password, role: 'recruiter' },
+        { name: name.trim(), email: email.trim().toLowerCase(), password, role: 'recruiter' },
         { timeout: 30000 }
       )
       localStorage.setItem('hiresense_token', res.data.access_token)
@@ -43,10 +60,19 @@ export default function RecruiterSignup() {
       localStorage.setItem('hiresense_role', res.data.role || 'recruiter')
       navigate('/recruiter/dashboard')
     } catch (err) {
-      if (err.response?.status === 400) {
-        setError(err.response.data.detail || 'Could not create account')
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail
+        if (typeof detail === 'string') {
+          setError(detail)
+        } else if (Array.isArray(detail)) {
+          setError(detail.map(d => d.msg || d.message || JSON.stringify(d)).join(', '))
+        } else {
+          setError(JSON.stringify(detail))
+        }
+      } else if (err.message) {
+        setError(`Connection error: ${err.message}. Please verify the server is running.`)
       } else {
-        setError('Something went wrong. Please try again.')
+        setError('Could not create recruiter account. Please try again.')
       }
     } finally {
       setLoading(false)
@@ -54,149 +80,253 @@ export default function RecruiterSignup() {
   }
 
   return (
-    <div className="h-screen overflow-y-auto overflow-x-hidden bg-gray-50 relative flex items-center justify-center px-4 lg:px-10 py-4">
-      <div className="absolute -top-24 -left-24 w-72 h-72 bg-emerald-200/40 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-24 -right-16 w-72 h-72 bg-violet-200/30 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col justify-between relative overflow-hidden font-sans selection:bg-emerald-500 selection:text-white">
 
-      <div className="w-full max-w-6xl grid lg:grid-cols-2 gap-8 lg:gap-14 items-center relative z-10">
+      {/* Dynamic Background Glow Elements */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[350px] bg-gradient-to-b from-emerald-100/60 via-teal-50/30 to-transparent blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 -left-24 w-80 h-80 bg-emerald-100/40 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="hidden lg:block" style={{ animation: 'fadeInUp 0.5s ease-out' }}>
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-xs">H</div>
-            <span className="font-semibold text-gray-900 text-lg">HireSense</span>
+      {/* Floating Top Navbar */}
+      <header className="p-4 sm:p-8 flex items-center justify-between relative z-10 max-w-7xl mx-auto w-full">
+        <div className="flex items-center gap-3 cursor-pointer group" onClick={() => navigate('/')}>
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white font-black shadow-sm shadow-emerald-600/20 group-hover:scale-105 transition-transform duration-200">
+            <Sparkles className="w-5 h-5 fill-current" />
           </div>
-
-          <div className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-[11px] font-medium px-2.5 py-1 rounded-full mb-4">
-            <Users className="w-3 h-3" />
-            For Recruiters &amp; Hiring Teams
-          </div>
-
-          <h1 className="text-3xl font-bold text-gray-900 leading-[1.15] mb-3 tracking-tight">
-            Hire by skills,<br />
-            <span className="text-emerald-600">not just keywords.</span>
-          </h1>
-          <p className="text-sm text-gray-500 mb-5 max-w-sm">
-            Upload a job description, rank candidates by real skill match, and see exactly why each one scored the way they did.
-          </p>
-
-          <div className="grid grid-cols-2 gap-2.5 mb-5 max-w-sm">
-            {FEATURES.map((f) => (
-              <div key={f.title} className="flex items-center gap-2 bg-white/70 border border-gray-100 rounded-xl px-3 py-2.5 hover:border-emerald-200 hover:bg-white transition-colors">
-                <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                  <f.icon className="w-3.5 h-3.5 text-emerald-600" />
-                </div>
-                <span className="text-xs font-medium text-gray-800">{f.title}</span>
-              </div>
-            ))}
-          </div>
+          <span className="font-extrabold text-gray-900 text-xl tracking-tight">HireSense</span>
         </div>
 
-        <div
-          className="bg-white rounded-3xl shadow-xl shadow-gray-200/60 border border-gray-100 p-6 lg:p-7 w-full max-w-[420px] mx-auto"
-          style={{ animation: 'fadeInUp 0.6s ease-out' }}
-        >
-          <h1 className="text-xl font-bold text-gray-900 text-center mb-0.5 tracking-tight">Create your recruiter account</h1>
-          <p className="text-xs text-gray-500 text-center mb-4">Find the right candidates, faster</p>
-
-          {error && (
-            <div className="bg-red-50 text-red-600 text-xs rounded-lg p-2.5 mb-3">{error}</div>
-          )}
-
-          <div className="space-y-2">
-            <div className="relative">
-              <User className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Full name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl pl-8 pr-3 py-2 text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/10 transition-all"
-              />
-            </div>
-
-            <div className="relative">
-              <Mail className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="email"
-                placeholder="Work email address"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl pl-8 pr-3 py-2 text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/10 transition-all"
-              />
-            </div>
-
-            <div className="relative">
-              <Lock className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl pl-8 pr-7 py-2 text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/10 transition-all"
-              />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-
-            <div className="relative">
-              <Lock className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type={showConfirm ? 'text' : 'password'}
-                placeholder="Confirm password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                className="w-full border border-gray-200 rounded-xl pl-8 pr-7 py-2 text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/10 transition-all"
-              />
-              <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                {showConfirm ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-          </div>
-
-          <label className="flex items-start gap-2 mt-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={agreed}
-              onChange={(e) => setAgreed(e.target.checked)}
-              className="mt-0.5 w-3.5 h-3.5 accent-emerald-600"
-            />
-            <span className="text-[11px] text-gray-500 leading-snug">
-              I agree to the <span className="text-emerald-600 font-medium">Terms</span> and{' '}
-              <span className="text-emerald-600 font-medium">Privacy Policy</span>
-            </span>
-          </label>
-
+        <div className="flex items-center gap-3">
           <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full bg-emerald-600 text-white py-2.5 rounded-xl font-medium text-sm hover:bg-emerald-700 active:scale-[0.98] transition-all disabled:opacity-50 mt-3 shadow-sm shadow-emerald-600/20"
+            onClick={() => navigate('/')}
+            className="text-xs font-semibold text-gray-500 hover:text-gray-900 px-3 py-2 rounded-xl transition flex items-center gap-1"
           >
-            {loading ? 'Creating account...' : 'Create Recruiter Account'}
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Home</span>
           </button>
-
-          <p className="text-center text-xs text-gray-500 mt-3">
-            Already have a recruiter account?{' '}
-            <Link to="/recruiter/login" className="text-emerald-600 font-medium hover:underline">
-              Log in
-            </Link>
-          </p>
-          <p className="text-center text-xs text-gray-400 mt-2">
-            Looking to analyze your own resume instead?{' '}
-            <Link to="/signup" className="text-emerald-600 font-medium hover:underline">
-              Candidate signup
-            </Link>
-          </p>
+          <button
+            onClick={() => navigate('/login')}
+            className="text-xs font-bold bg-white hover:bg-emerald-50 text-emerald-700 px-3.5 py-2 rounded-xl border border-gray-200 transition shadow-xs"
+          >
+            Candidate Portal →
+          </button>
         </div>
-      </div>
+      </header>
 
-      <style>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+      {/* Main Container */}
+      <main className="flex-1 flex items-center justify-center px-4 sm:px-8 py-8 relative z-10 max-w-6xl mx-auto w-full">
+        <div className="grid lg:grid-cols-12 gap-8 lg:gap-12 items-center w-full">
+
+          {/* Left Column: Product Showcase */}
+          <div className="hidden lg:flex lg:col-span-6 flex-col justify-center space-y-6">
+            <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200/60 text-emerald-700 text-xs font-bold px-3.5 py-1.5 rounded-full w-fit shadow-xs">
+              <Users className="w-4 h-4 text-emerald-600" />
+              <span>RECRUITER & HIRING SUITE</span>
+            </div>
+
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight tracking-tight">
+              Hire By Verified Skills, <br />
+              <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 bg-clip-text text-transparent">
+                Not Just Keyword Guesswork
+              </span>
+            </h1>
+
+            <p className="text-gray-500 text-xs sm:text-sm leading-relaxed font-medium">
+              Upload a job description, bulk rank candidate resumes by real qualification match, and access explainable AI hiring rationales.
+            </p>
+
+            {/* Feature Cards Grid */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              {FEATURES.map((f) => (
+                <div key={f.title} className="bg-white border border-gray-100 rounded-2xl p-3.5 shadow-sm hover:border-emerald-200 transition duration-200">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold mb-2">
+                    <f.icon className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs font-bold text-gray-900 mb-0.5">{f.title}</div>
+                  <div className="text-[11px] text-gray-400 leading-snug">Enterprise grade candidate evaluations</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Trust Metric Badges */}
+            <div className="flex items-center gap-6 pt-3 text-xs text-gray-500 font-semibold border-t border-gray-200/80">
+              <span className="flex items-center gap-1.5 text-emerald-700">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Bulk PDF Ranking
+              </span>
+              <span className="flex items-center gap-1.5 text-teal-700">
+                <CheckCircle2 className="w-4 h-4 text-teal-500" /> 🏆 Winner Badges
+              </span>
+            </div>
+          </div>
+
+          {/* Right Column: Clean White Auth Card */}
+          <div className="lg:col-span-6 w-full max-w-md mx-auto">
+            <div className="bg-white border border-gray-100 rounded-3xl p-6 sm:p-8 shadow-xl shadow-gray-200/50 space-y-5">
+              
+              <div className="text-center space-y-1">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Recruiter Registration ✨</h2>
+                <p className="text-xs text-gray-400">Set up your company recruiting account in seconds</p>
+              </div>
+
+              {error && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-2xl p-3.5 font-medium flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                  <span className="leading-snug">{error}</span>
+                </div>
+              )}
+
+              {/* Form Input Fields */}
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-700 block">Full Name</label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Sarah Jenkins"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-700 block">Work Email Address</label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      placeholder="sarah@company.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-gray-700 block">Password</label>
+                    {password && (
+                      <span className={`text-[11px] font-bold ${pwdStrength.textColor}`}>
+                        {pwdStrength.label}
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Min. 8 characters with letters & numbers"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-10 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  {/* Dynamic Password Strength Progress Meter */}
+                  {password && (
+                    <div className="pt-1.5 space-y-2">
+                      <div className="grid grid-cols-4 gap-1.5 h-1.5">
+                        <div className={`rounded-full transition-all duration-300 ${pwdStrength.score >= 1 ? pwdStrength.color : 'bg-gray-200'}`} />
+                        <div className={`rounded-full transition-all duration-300 ${pwdStrength.score >= 2 ? pwdStrength.color : 'bg-gray-200'}`} />
+                        <div className={`rounded-full transition-all duration-300 ${pwdStrength.score >= 3 ? pwdStrength.color : 'bg-gray-200'}`} />
+                        <div className={`rounded-full transition-all duration-300 ${pwdStrength.score >= 4 ? pwdStrength.color : 'bg-gray-200'}`} />
+                      </div>
+
+                      {/* Password Requirements Checklist */}
+                      <div className="grid grid-cols-2 gap-1 text-[11px] pt-1">
+                        <div className={`flex items-center gap-1 font-medium ${pwdStrength.checks.length ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {pwdStrength.checks.length ? <Check className="w-3 h-3 text-emerald-500" /> : <span className="w-3 h-3 text-center text-xs leading-none">•</span>}
+                          <span>8+ characters</span>
+                        </div>
+                        <div className={`flex items-center gap-1 font-medium ${pwdStrength.checks.hasNumber ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {pwdStrength.checks.hasNumber ? <Check className="w-3 h-3 text-emerald-500" /> : <span className="w-3 h-3 text-center text-xs leading-none">•</span>}
+                          <span>At least 1 number</span>
+                        </div>
+                        <div className={`flex items-center gap-1 font-medium ${pwdStrength.checks.hasUpper && pwdStrength.checks.hasLower ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {pwdStrength.checks.hasUpper && pwdStrength.checks.hasLower ? <Check className="w-3 h-3 text-emerald-500" /> : <span className="w-3 h-3 text-center text-xs leading-none">•</span>}
+                          <span>Upper & lowercase</span>
+                        </div>
+                        <div className={`flex items-center gap-1 font-medium ${pwdStrength.checks.hasSpecial ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {pwdStrength.checks.hasSpecial ? <Check className="w-3 h-3 text-emerald-500" /> : <span className="w-3 h-3 text-center text-xs leading-none">•</span>}
+                          <span>Special symbol</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-700 block">Confirm Password</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type={showConfirm ? 'text' : 'password'}
+                      placeholder="Repeat password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                      className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-10 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm(!showConfirm)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-emerald-600 rounded"
+                />
+                <span className="text-[11px] text-gray-500 leading-snug">
+                  I agree to the <span className="text-emerald-600 font-bold">Terms of Service</span> and{' '}
+                  <span className="text-emerald-600 font-bold">Privacy Policy</span>.
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={loading}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm py-3.5 rounded-2xl shadow-sm shadow-emerald-600/20 transition transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <span>{loading ? 'Creating Account...' : 'Create Recruiter Account'}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              <p className="text-center text-xs text-gray-500">
+                Already have a recruiter account?{' '}
+                <Link to="/recruiter/login" className="text-emerald-600 font-bold hover:underline">
+                  Sign In
+                </Link>
+              </p>
+
+            </div>
+          </div>
+
+        </div>
+      </main>
+
+      <footer className="p-4 text-center text-[11px] text-gray-400 relative z-10">
+        © {new Date().getFullYear()} HireSense AI Inc. Recruiter Portal.
+      </footer>
+
     </div>
   )
 }

@@ -1,10 +1,11 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect, useMemo } from 'react'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import axios from 'axios'
 import {
   Sparkles, Target, TrendingUp, BookOpen, MessageSquare, User, Mail, Lock, Eye, EyeOff,
-  ArrowRight, ShieldCheck, CheckCircle2, ArrowLeft
+  ArrowRight, ShieldCheck, CheckCircle2, ArrowLeft, AlertCircle, Check, X
 } from 'lucide-react'
+import { evaluatePassword, validateEmail } from '../utils/validation'
 
 const FEATURES = [
   { icon: Target, title: 'AI Match Score', desc: 'Real-time resume overlap against job postings' },
@@ -15,6 +16,7 @@ const FEATURES = [
 
 export default function Signup() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -25,14 +27,47 @@ export default function Signup() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Live password strength evaluation
+  const pwdStrength = useMemo(() => evaluatePassword(password), [password])
+
+  useEffect(() => {
+    const oauthError = searchParams.get('oauth_error')
+    if (oauthError) {
+      if (oauthError === 'linkedin_not_configured') {
+        setError('LinkedIn OAuth is not configured on this server. Please use Google Sign-In or Email.')
+      } else if (oauthError === 'google_not_configured') {
+        setError('Google OAuth is not configured on the backend server.')
+      } else if (oauthError === 'access_denied') {
+        setError('Google sign-up was cancelled or access denied.')
+      } else if (oauthError === 'token_exchange_failed') {
+        setError("Google authentication token exchange failed. Please ensure 'http://127.0.0.1:8000/api/v1/oauth/google/callback' is registered as an Authorized Redirect URI in Google Cloud Console.")
+      } else if (oauthError === 'userinfo_failed') {
+        setError('Could not retrieve user profile from Google. Please try again.')
+      } else {
+        setError(`OAuth sign-up error: ${oauthError}`)
+      }
+    }
+  }, [searchParams])
+
   const handleOAuthRedirect = (provider) => {
-    window.location.href = `${import.meta.env.VITE_API_URL}/api/v1/oauth/${provider}/login`
+    const origin = window.location.origin
+    window.location.href = `${import.meta.env.VITE_API_URL}/api/v1/oauth/${provider}/login?redirect_to=${encodeURIComponent(origin)}`
   }
 
   const handleSubmit = async () => {
     if (!name.trim()) return setError('Please enter your full name.')
-    if (!email || !password) return setError('Please enter your email and password.')
-    if (password.length < 6) return setError('Password must be at least 6 characters.')
+    
+    // Validate Email syntax and typo domains (e.g. gmail.comm)
+    const emailCheck = validateEmail(email)
+    if (!emailCheck.valid) {
+      return setError(emailCheck.error)
+    }
+
+    if (!password) return setError('Please enter a password.')
+    if (password.length < 8) return setError('Password must be at least 8 characters long.')
+    if (!pwdStrength.checks.hasNumber || (!pwdStrength.checks.hasUpper && !pwdStrength.checks.hasLower)) {
+      return setError('Please use a stronger password with both letters and numbers.')
+    }
     if (password !== confirmPassword) return setError('Passwords do not match.')
     if (!agreed) return setError('Please agree to the Terms of Service & Privacy Policy.')
 
@@ -41,7 +76,7 @@ export default function Signup() {
     try {
       const res = await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/auth/signup`,
-        { name: name.trim(), email: email.trim(), password },
+        { name: name.trim(), email: email.trim().toLowerCase(), password },
         { timeout: 30000 }
       )
       localStorage.setItem('hiresense_token', res.data.access_token)
@@ -49,10 +84,19 @@ export default function Signup() {
       localStorage.setItem('hiresense_name', res.data.name || '')
       navigate('/analyze')
     } catch (err) {
-      if (err.response?.status === 400) {
-        setError(err.response.data.detail || 'Could not create account.')
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail
+        if (typeof detail === 'string') {
+          setError(detail)
+        } else if (Array.isArray(detail)) {
+          setError(detail.map(d => d.msg || d.message || JSON.stringify(d)).join(', '))
+        } else {
+          setError(JSON.stringify(detail))
+        }
+      } else if (err.message) {
+        setError(`Connection issue: ${err.message}. Please verify the backend server is running at ${import.meta.env.VITE_API_URL}.`)
       } else {
-        setError('Something went wrong. Please try again.')
+        setError('Could not create account. Please verify your details.')
       }
     } finally {
       setLoading(false)
@@ -148,8 +192,9 @@ export default function Signup() {
               </div>
 
               {error && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-2xl p-3.5 font-medium">
-                  {error}
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-2xl p-3.5 font-medium flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                  <span className="leading-snug">{error}</span>
                 </div>
               )}
 
@@ -158,7 +203,7 @@ export default function Signup() {
                 <button
                   type="button"
                   onClick={() => handleOAuthRedirect('google')}
-                  className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-2xl py-2.5 text-xs font-bold text-gray-700 transition shadow-xs"
+                  className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-emerald-50 hover:border-emerald-200 border border-gray-200 rounded-2xl py-2.5 text-xs font-bold text-gray-700 transition shadow-xs"
                 >
                   <span className="w-4 h-4 rounded-full bg-gradient-to-br from-blue-500 via-red-500 to-yellow-400 flex items-center justify-center text-white text-[9px] font-black">G</span>
                   <span>Google</span>
@@ -166,7 +211,7 @@ export default function Signup() {
                 <button
                   type="button"
                   onClick={() => handleOAuthRedirect('linkedin')}
-                  className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-2xl py-2.5 text-xs font-bold text-gray-700 transition shadow-xs"
+                  className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-blue-50 hover:border-blue-200 border border-gray-200 rounded-2xl py-2.5 text-xs font-bold text-gray-700 transition shadow-xs"
                 >
                   <span className="w-4 h-4 rounded bg-blue-600 flex items-center justify-center text-white text-[8px] font-black">in</span>
                   <span>LinkedIn</span>
@@ -210,12 +255,19 @@ export default function Signup() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-gray-700 block">Password</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-gray-700 block">Password</label>
+                    {password && (
+                      <span className={`text-[11px] font-bold ${pwdStrength.textColor}`}>
+                        {pwdStrength.label}
+                      </span>
+                    )}
+                  </div>
                   <div className="relative">
                     <Lock className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       type={showPassword ? 'text' : 'password'}
-                      placeholder="Min. 6 characters"
+                      placeholder="Min. 8 characters with letters & numbers"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-10 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
@@ -228,6 +280,38 @@ export default function Signup() {
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+
+                  {/* Dynamic Password Strength Progress Meter */}
+                  {password && (
+                    <div className="pt-1.5 space-y-2">
+                      <div className="grid grid-cols-4 gap-1.5 h-1.5">
+                        <div className={`rounded-full transition-all duration-300 ${pwdStrength.score >= 1 ? pwdStrength.color : 'bg-gray-200'}`} />
+                        <div className={`rounded-full transition-all duration-300 ${pwdStrength.score >= 2 ? pwdStrength.color : 'bg-gray-200'}`} />
+                        <div className={`rounded-full transition-all duration-300 ${pwdStrength.score >= 3 ? pwdStrength.color : 'bg-gray-200'}`} />
+                        <div className={`rounded-full transition-all duration-300 ${pwdStrength.score >= 4 ? pwdStrength.color : 'bg-gray-200'}`} />
+                      </div>
+
+                      {/* Password Requirements Checklist */}
+                      <div className="grid grid-cols-2 gap-1 text-[11px] pt-1">
+                        <div className={`flex items-center gap-1 font-medium ${pwdStrength.checks.length ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {pwdStrength.checks.length ? <Check className="w-3 h-3 text-emerald-500" /> : <span className="w-3 h-3 text-center text-xs leading-none">•</span>}
+                          <span>8+ characters</span>
+                        </div>
+                        <div className={`flex items-center gap-1 font-medium ${pwdStrength.checks.hasNumber ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {pwdStrength.checks.hasNumber ? <Check className="w-3 h-3 text-emerald-500" /> : <span className="w-3 h-3 text-center text-xs leading-none">•</span>}
+                          <span>At least 1 number</span>
+                        </div>
+                        <div className={`flex items-center gap-1 font-medium ${pwdStrength.checks.hasUpper && pwdStrength.checks.hasLower ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {pwdStrength.checks.hasUpper && pwdStrength.checks.hasLower ? <Check className="w-3 h-3 text-emerald-500" /> : <span className="w-3 h-3 text-center text-xs leading-none">•</span>}
+                          <span>Upper & lowercase</span>
+                        </div>
+                        <div className={`flex items-center gap-1 font-medium ${pwdStrength.checks.hasSpecial ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {pwdStrength.checks.hasSpecial ? <Check className="w-3 h-3 text-emerald-500" /> : <span className="w-3 h-3 text-center text-xs leading-none">•</span>}
+                          <span>Special symbol</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1">

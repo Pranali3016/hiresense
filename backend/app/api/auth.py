@@ -30,18 +30,38 @@ class AuthResponse(BaseModel):
 
 @router.post("/signup", response_model=AuthResponse)
 def signup(data: SignupRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == data.email).first()
+    email_lower = data.email.lower().strip()
+
+    # Common email domain typo detection
+    typo_domains = [
+        "@gmail.comm", "@gmail.con", "@gmail.co", "@gmai.com", "@gamil.com",
+        "@yahoo.comm", "@yahoo.con", "@yahooo.com",
+        "@hotmail.comm", "@hotmail.con",
+        "@outlook.comm", "@outlook.con"
+    ]
+    for typo in typo_domains:
+        if email_lower.endswith(typo):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid email domain typo detected ({typo}). Please check your email spelling."
+            )
+
+    existing = db.query(User).filter(User.email == email_lower).first()
     if existing:
         raise HTTPException(status_code=400, detail="An account with this email already exists")
 
     if not data.name or not data.name.strip():
         raise HTTPException(status_code=400, detail="Please enter your name")
 
-    if len(data.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
+
+    import re
+    if not re.search(r"[A-Za-z]", data.password) or not re.search(r"[0-9]", data.password):
+        raise HTTPException(status_code=400, detail="Password must contain both letters and numbers for security")
 
     new_user = User(
-        email=data.email,
+        email=email_lower,
         name=data.name.strip(),
         hashed_password=hash_password(data.password),
         role=data.role if data.role in ("candidate", "recruiter") else "candidate"

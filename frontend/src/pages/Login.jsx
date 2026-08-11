@@ -1,10 +1,12 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import axios from 'axios'
 import {
   Sparkles, Target, TrendingUp, BookOpen, MessageSquare, Mail, Lock, Eye, EyeOff,
-  ArrowRight, ShieldCheck, CheckCircle2, ArrowLeft
+  ArrowRight, ShieldCheck, CheckCircle2, ArrowLeft, AlertCircle
 } from 'lucide-react'
+
+import { evaluatePassword, validateEmail } from '../utils/validation'
 
 const FEATURES = [
   { icon: Target, title: 'AI Match Score', desc: 'Real-time resume overlap against job postings' },
@@ -15,6 +17,7 @@ const FEATURES = [
 
 export default function Login() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -22,22 +25,46 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    const oauthError = searchParams.get('oauth_error')
+    if (oauthError) {
+      if (oauthError === 'linkedin_not_configured') {
+        setError('LinkedIn OAuth is not configured on this server. Please use Google Sign-In or Email.')
+      } else if (oauthError === 'google_not_configured') {
+        setError('Google OAuth is not configured on the backend server.')
+      } else if (oauthError === 'access_denied') {
+        setError('Google sign-in was cancelled or access denied.')
+      } else if (oauthError === 'token_exchange_failed') {
+        setError("Google authentication token exchange failed. Please ensure 'http://127.0.0.1:8000/api/v1/oauth/google/callback' is registered as an Authorized Redirect URI in Google Cloud Console.")
+      } else if (oauthError === 'userinfo_failed') {
+        setError('Could not retrieve user profile from Google. Please try again.')
+      } else {
+        setError(`OAuth sign-in error: ${oauthError}`)
+      }
+    }
+  }, [searchParams])
+
   const handleOAuthRedirect = (provider) => {
-    window.location.href = `${import.meta.env.VITE_API_URL}/api/v1/oauth/${provider}/login`
+    const origin = window.location.origin
+    window.location.href = `${import.meta.env.VITE_API_URL}/api/v1/oauth/${provider}/login?redirect_to=${encodeURIComponent(origin)}`
   }
 
   const handleForgotPassword = () => {
-    setError("Password reset link request recorded — please check your email or contact support.")
+    setError("Password reset request noted. Please check your email or create a new account.")
   }
 
   const handleSubmit = async () => {
-    if (!email || !password) return setError('Please enter your email and password.')
+    const emailCheck = validateEmail(email)
+    if (!emailCheck.valid) {
+      return setError(emailCheck.error)
+    }
+    if (!password) return setError('Please enter your password.')
     setError('')
     setLoading(true)
     try {
       const res = await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/auth/login`,
-        { email, password },
+        { email: email.trim(), password },
         { timeout: 30000 }
       )
       localStorage.setItem('hiresense_token', res.data.access_token)
@@ -45,10 +72,19 @@ export default function Login() {
       localStorage.setItem('hiresense_name', res.data.name || '')
       navigate(res.data.onboarding_completed ? '/analyze' : '/onboarding')
     } catch (err) {
-      if (err.response?.status === 401) {
-        setError(err.response.data?.detail || 'Incorrect email or password.')
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail
+        if (typeof detail === 'string') {
+          setError(detail)
+        } else if (Array.isArray(detail)) {
+          setError(detail.map(d => d.msg || d.message || JSON.stringify(d)).join(', '))
+        } else {
+          setError(JSON.stringify(detail))
+        }
+      } else if (err.message) {
+        setError(`Connection issue: ${err.message}. Please ensure backend is running at ${import.meta.env.VITE_API_URL}.`)
       } else {
-        setError('Something went wrong. Please try again.')
+        setError('Incorrect email or password. Please verify your credentials.')
       }
     } finally {
       setLoading(false)
@@ -144,8 +180,9 @@ export default function Login() {
               </div>
 
               {error && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-2xl p-3.5 font-medium">
-                  {error}
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-2xl p-3.5 font-medium flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                  <span className="leading-snug">{error}</span>
                 </div>
               )}
 
@@ -154,7 +191,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => handleOAuthRedirect('google')}
-                  className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-2xl py-2.5 text-xs font-bold text-gray-700 transition shadow-xs"
+                  className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-emerald-50 hover:border-emerald-200 border border-gray-200 rounded-2xl py-2.5 text-xs font-bold text-gray-700 transition shadow-xs"
                 >
                   <span className="w-4 h-4 rounded-full bg-gradient-to-br from-blue-500 via-red-500 to-yellow-400 flex items-center justify-center text-white text-[9px] font-black">G</span>
                   <span>Google</span>
@@ -162,7 +199,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => handleOAuthRedirect('linkedin')}
-                  className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-2xl py-2.5 text-xs font-bold text-gray-700 transition shadow-xs"
+                  className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-blue-50 hover:border-blue-200 border border-gray-200 rounded-2xl py-2.5 text-xs font-bold text-gray-700 transition shadow-xs"
                 >
                   <span className="w-4 h-4 rounded bg-blue-600 flex items-center justify-center text-white text-[8px] font-black">in</span>
                   <span>LinkedIn</span>
