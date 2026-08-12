@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { BookOpen, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Video, Layers } from 'lucide-react'
+import { BookOpen, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Video, AlertCircle, RotateCcw } from 'lucide-react'
+import { extractErrorMessage } from '../utils/apiError'
 
 export default function Syllabus() {
   const { skill } = useParams()
@@ -10,30 +11,42 @@ export default function Syllabus() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [completedIds, setCompletedIds] = useState([])
+  const isMountedRef = useRef(true)
 
   const authHeaders = {
     'Authorization': `Bearer ${localStorage.getItem('hiresense_token')}`
   }
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      setLoading(true)
-      setError('')
-      setSyllabus(null)
-      try {
-        const [syllabusRes, progressRes] = await Promise.all([
-          axios.get(`${import.meta.env.VITE_API_URL}/api/v1/syllabus/${skill}`, { timeout: 90000 }),
-          axios.get(`${import.meta.env.VITE_API_URL}/api/v1/progress/skill/${skill}`, { headers: authHeaders })
-        ])
+  const fetchAll = async () => {
+    setLoading(true)
+    setError('')
+    setSyllabus(null)
+    try {
+      const [syllabusRes, progressRes] = await Promise.all([
+        axios.get(`${import.meta.env.VITE_API_URL}/api/v1/syllabus/${skill}`, { timeout: 90000 }),
+        axios.get(`${import.meta.env.VITE_API_URL}/api/v1/progress/skill/${skill}`, { headers: authHeaders, timeout: 20000 }).catch(() => ({ data: {} }))
+      ])
+      if (isMountedRef.current) {
         setSyllabus(syllabusRes.data.syllabus)
-        setCompletedIds(progressRes.data.completed_subtopic_ids || [])
-      } catch (e) {
-        setError('Could not load syllabus. Please try again.')
-      } finally {
+        setCompletedIds(progressRes.data?.completed_subtopic_ids || [])
+      }
+    } catch (e) {
+      if (isMountedRef.current) {
+        setError(extractErrorMessage(e, `Could not load learning syllabus for '${skill}'. Please try again.`))
+      }
+    } finally {
+      if (isMountedRef.current) {
         setLoading(false)
       }
     }
+  }
+
+  useEffect(() => {
+    isMountedRef.current = true
     fetchAll()
+    return () => {
+      isMountedRef.current = false
+    }
   }, [skill])
 
   const toggleSubtopic = async (subtopicId) => {
@@ -52,10 +65,12 @@ export default function Syllabus() {
           completed: !isCurrentlyDone,
           job_role: null
         },
-        { headers: authHeaders }
+        { headers: authHeaders, timeout: 15000 }
       )
-    } catch (e) {
-      setCompletedIds(completedIds)
+    } catch (_) {
+      if (isMountedRef.current) {
+        setCompletedIds(completedIds)
+      }
     }
   }
 
@@ -114,8 +129,19 @@ export default function Syllabus() {
         )}
 
         {error && !syllabus && (
-          <div className="bg-red-50 border border-red-200 text-red-600 text-xs sm:text-sm rounded-2xl p-4 font-semibold">
-            {error}
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <span className="font-semibold">{error}</span>
+            </div>
+            <button
+              onClick={fetchAll}
+              disabled={loading}
+              className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 self-end sm:self-auto text-xs"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Retry Generation</span>
+            </button>
           </div>
         )}
 

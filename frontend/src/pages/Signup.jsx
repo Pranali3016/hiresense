@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import axios from 'axios'
 import {
   Sparkles, Target, TrendingUp, BookOpen, MessageSquare, User, Mail, Lock, Eye, EyeOff,
-  ArrowRight, ShieldCheck, CheckCircle2, ArrowLeft, AlertCircle, Check, X
+  ArrowRight, ShieldCheck, CheckCircle2, ArrowLeft, AlertCircle, Check
 } from 'lucide-react'
 import { evaluatePassword, validateEmail } from '../utils/validation'
+import { extractErrorMessage } from '../utils/apiError'
 
 const FEATURES = [
   { icon: Target, title: 'AI Match Score', desc: 'Real-time resume overlap against job postings' },
@@ -26,11 +27,13 @@ export default function Signup() {
   const [agreed, setAgreed] = useState(true)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const isMountedRef = useRef(true)
 
   // Live password strength evaluation
   const pwdStrength = useMemo(() => evaluatePassword(password), [password])
 
   useEffect(() => {
+    isMountedRef.current = true
     const oauthError = searchParams.get('oauth_error')
     if (oauthError) {
       if (oauthError === 'linkedin_not_configured') {
@@ -51,6 +54,9 @@ export default function Signup() {
         setError(`OAuth error: ${oauthError}`)
       }
     }
+    return () => {
+      isMountedRef.current = false
+    }
   }, [searchParams])
 
   const handleOAuthRedirect = (provider) => {
@@ -59,9 +65,9 @@ export default function Signup() {
   }
 
   const handleSubmit = async () => {
+    // 1. Client-Side Form Validation Before Dispatching
     if (!name.trim()) return setError('Please enter your full name.')
     
-    // Validate Email syntax and typo domains (e.g. gmail.comm)
     const emailCheck = validateEmail(email)
     if (!emailCheck.valid) {
       return setError(emailCheck.error)
@@ -70,13 +76,14 @@ export default function Signup() {
     if (!password) return setError('Please enter a password.')
     if (password.length < 8) return setError('Password must be at least 8 characters long.')
     if (!pwdStrength.checks.hasNumber || (!pwdStrength.checks.hasUpper && !pwdStrength.checks.hasLower)) {
-      return setError('Please use a stronger password with both letters and numbers.')
+      return setError('Please use a stronger password containing both letters and numbers.')
     }
     if (password !== confirmPassword) return setError('Passwords do not match.')
     if (!agreed) return setError('Please agree to the Terms of Service & Privacy Policy.')
 
     setError('')
     setLoading(true)
+
     try {
       const res = await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/auth/signup`,
@@ -86,24 +93,17 @@ export default function Signup() {
       localStorage.setItem('hiresense_token', res.data.access_token)
       localStorage.setItem('hiresense_email', res.data.email)
       localStorage.setItem('hiresense_name', res.data.name || '')
-      navigate('/analyze')
+      if (isMountedRef.current) {
+        navigate('/analyze')
+      }
     } catch (err) {
-      if (err.response?.data?.detail) {
-        const detail = err.response.data.detail
-        if (typeof detail === 'string') {
-          setError(detail)
-        } else if (Array.isArray(detail)) {
-          setError(detail.map(d => d.msg || d.message || JSON.stringify(d)).join(', '))
-        } else {
-          setError(JSON.stringify(detail))
-        }
-      } else if (err.message) {
-        setError(`Connection issue: ${err.message}. Please verify the backend server is running at ${import.meta.env.VITE_API_URL}.`)
-      } else {
-        setError('Could not create account. Please verify your details.')
+      if (isMountedRef.current) {
+        setError(extractErrorMessage(err, 'Could not create account. Please verify your details.'))
       }
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -238,7 +238,10 @@ export default function Signup() {
                       type="text"
                       placeholder="Alex Rivera"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      onChange={(e) => {
+                        setName(e.target.value)
+                        if (error) setError('')
+                      }}
                       className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                     />
                   </div>
@@ -252,7 +255,10 @@ export default function Signup() {
                       type="email"
                       placeholder="alex@example.com"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value)
+                        if (error) setError('')
+                      }}
                       className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                     />
                   </div>
@@ -273,7 +279,10 @@ export default function Signup() {
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Min. 8 characters with letters & numbers"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => {
+                        setPassword(e.target.value)
+                        if (error) setError('')
+                      }}
                       className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-10 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                     />
                     <button
@@ -326,7 +335,10 @@ export default function Signup() {
                       type={showConfirm ? 'text' : 'password'}
                       placeholder="Repeat password"
                       value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value)
+                        if (error) setError('')
+                      }}
                       onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
                       className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-10 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                     />

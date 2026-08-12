@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { MessageSquare, Sparkles, CheckCircle2, ArrowLeft, ChevronDown, ChevronUp, BookOpen } from 'lucide-react'
+import { MessageSquare, Sparkles, CheckCircle2, ArrowLeft, ChevronDown, BookOpen, AlertCircle, RotateCcw } from 'lucide-react'
+import { extractErrorMessage } from '../utils/apiError'
 
 export default function Interview() {
   const { skill } = useParams()
@@ -12,33 +13,45 @@ export default function Interview() {
   const [revealed, setRevealed] = useState({})
   const [completedIds, setCompletedIds] = useState([])
   const [tab, setTab] = useState('theory')
+  const isMountedRef = useRef(true)
 
   const authHeaders = {
     'Authorization': `Bearer ${localStorage.getItem('hiresense_token')}`
   }
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      setLoading(true)
-      setError('')
-      try {
-        const [questionsRes, progressRes] = await Promise.all([
-          axios.get(`${import.meta.env.VITE_API_URL}/api/v1/interview/${skill}`, { timeout: 120000 }),
-          axios.get(`${import.meta.env.VITE_API_URL}/api/v1/progress/questions/${skill}`, { headers: authHeaders })
-        ])
+  const fetchAll = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [questionsRes, progressRes] = await Promise.all([
+        axios.get(`${import.meta.env.VITE_API_URL}/api/v1/interview/${skill}`, { timeout: 90000 }),
+        axios.get(`${import.meta.env.VITE_API_URL}/api/v1/progress/questions/${skill}`, { headers: authHeaders, timeout: 20000 }).catch(() => ({ data: {} }))
+      ])
+      if (isMountedRef.current) {
         setData(questionsRes.data)
-        setCompletedIds(progressRes.data.completed_question_ids || [])
-      } catch (e) {
-        setError('Could not load interview questions. Please try again.')
-      } finally {
+        setCompletedIds(progressRes.data?.completed_question_ids || [])
+      }
+    } catch (e) {
+      if (isMountedRef.current) {
+        setError(extractErrorMessage(e, `Could not load interview questions for '${skill}'. Please try again.`))
+      }
+    } finally {
+      if (isMountedRef.current) {
         setLoading(false)
       }
     }
+  }
+
+  useEffect(() => {
+    isMountedRef.current = true
     fetchAll()
+    return () => {
+      isMountedRef.current = false
+    }
   }, [skill])
 
   const toggleReveal = (id) => {
-    setRevealed({ ...revealed, [id]: !revealed[id] })
+    setRevealed(prev => ({ ...prev, [id]: !prev[id] }))
   }
 
   const toggleCompleted = async (id, e) => {
@@ -53,10 +66,12 @@ export default function Interview() {
       await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/progress/question`,
         { question_id: id, completed: !isCurrentlyDone },
-        { headers: authHeaders }
+        { headers: authHeaders, timeout: 15000 }
       )
-    } catch (err) {
-      setCompletedIds(completedIds)
+    } catch (_) {
+      if (isMountedRef.current) {
+        setCompletedIds(completedIds)
+      }
     }
   }
 
@@ -113,9 +128,20 @@ export default function Interview() {
           </div>
         )}
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 text-xs sm:text-sm rounded-2xl p-4 font-semibold">
-            {error}
+        {error && !data && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <span className="font-semibold">{error}</span>
+            </div>
+            <button
+              onClick={fetchAll}
+              disabled={loading}
+              className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 self-end sm:self-auto text-xs"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Retry Generation</span>
+            </button>
           </div>
         )}
 

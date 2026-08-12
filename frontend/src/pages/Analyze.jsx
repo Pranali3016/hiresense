@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import {
   UploadCloud, Sparkles, FileText, CheckCircle2, Zap, ArrowRight,
-  Briefcase, AlertCircle, RefreshCw, FileCheck2, Loader2
+  Briefcase, AlertCircle, RefreshCw, FileCheck2, Loader2, RotateCcw
 } from 'lucide-react'
 import DashboardLayout from '../components/DashboardLayout'
+import { extractErrorMessage } from '../utils/apiError'
 
 const SAMPLE_JOB_PRESETS = [
   {
@@ -46,47 +47,77 @@ export default function Analyze() {
   const [loading, setLoading] = useState(false)
   const [loadingStep, setLoadingStep] = useState('1. Extracting Resume Text & Key Attributes...')
   const [error, setError] = useState('')
+  const isMountedRef = useRef(true)
 
   const authHeaders = { Authorization: `Bearer ${localStorage.getItem('hiresense_token')}` }
 
   useEffect(() => {
+    isMountedRef.current = true
     const fetchUserProfile = async () => {
       try {
         const res = await axios.get(
           `${import.meta.env.VITE_API_URL}/api/v1/auth/me`,
           { headers: authHeaders, timeout: 15000 }
         )
-        if (res.data.has_resume) {
+        if (isMountedRef.current && res.data.has_resume) {
           setHasProfileResume(true)
         }
-      } catch (e) {
+      } catch (_) {
         // Silently handle if profile fetch fails
       }
     }
     fetchUserProfile()
+    return () => {
+      isMountedRef.current = false
+    }
   }, [])
 
   const handlePresetSelect = (description) => {
     setJd(description)
+    if (error) setError('')
   }
 
   const handleSubmit = async () => {
-    if (!file && !useProfileResume) return setError('Please upload your resume PDF or select your saved profile resume.')
-    if (jd.trim().length < 30) return setError('Please paste a detailed job description (at least 30 characters).')
+    // 1. Client-Side Input Validation
+    if (!file && !useProfileResume) {
+      return setError('Please upload your resume PDF or check "Use Saved" to use your profile vault resume.')
+    }
+
+    if (file) {
+      if (!file.name.toLowerCase().endsWith('.pdf')) {
+        return setError(`Invalid file '${file.name}'. Only PDF resumes are accepted.`)
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        return setError('File exceeds maximum size limit of 10MB.')
+      }
+      if (file.size === 0) {
+        return setError('The selected PDF file is empty. Please select a valid resume.')
+      }
+    }
+
+    const cleanJd = jd.trim()
+    if (cleanJd.length < 30) {
+      return setError(`Job description is too short (${cleanJd.length} chars). Please enter at least 30 characters.`)
+    }
 
     setError('')
     setLoading(true)
     setLoadingStep('1. Parsing Resume Structure & Skill Matrix...')
 
-    const stepTimer1 = setTimeout(() => setLoadingStep('2. Benchmarking Experience against Requirements...'), 2500)
-    const stepTimer2 = setTimeout(() => setLoadingStep('3. Computing Match Score & Generating Skill Gaps...'), 5500)
+    const stepTimer1 = setTimeout(() => {
+      if (isMountedRef.current) setLoadingStep('2. Benchmarking Experience against Requirements...')
+    }, 2500)
+
+    const stepTimer2 = setTimeout(() => {
+      if (isMountedRef.current) setLoadingStep('3. Computing Match Score & Generating Skill Gaps...')
+    }, 5500)
 
     try {
       const formData = new FormData()
       if (file) {
         formData.append('file', file)
       }
-      formData.append('job_description', jd.trim())
+      formData.append('job_description', cleanJd)
 
       const response = await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/analyze/resume`,
@@ -101,20 +132,21 @@ export default function Analyze() {
       )
 
       localStorage.setItem('hiresense_result', JSON.stringify(response.data))
-      navigate('/results')
+      if (isMountedRef.current) {
+        navigate('/results')
+      }
 
     } catch (err) {
-      if (err.code === 'ECONNABORTED') {
-        setError('Analysis is taking longer than usual. Please try again.')
-      } else if (err.response) {
-        setError(err.response.data?.detail || `Server error (${err.response.status}). Please verify your input and try again.`)
-      } else {
-        setError('Network issue — please check your connection and try again.')
+      if (isMountedRef.current) {
+        const errorMsg = extractErrorMessage(err, 'Resume analysis failed. Please try again.')
+        setError(errorMsg)
       }
     } finally {
       clearTimeout(stepTimer1)
       clearTimeout(stepTimer2)
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -143,10 +175,21 @@ export default function Analyze() {
           </div>
         </div>
 
+        {/* Specific Error Banner with Instant Retry Option */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm rounded-2xl p-4 flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
-            <div className="font-semibold">{error}</div>
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <span className="font-semibold">{error}</span>
+            </div>
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 self-end sm:self-auto text-xs"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Retry Scan</span>
+            </button>
           </div>
         )}
 
@@ -182,6 +225,7 @@ export default function Analyze() {
                       onChange={(e) => {
                         setUseProfileResume(e.target.checked)
                         if (e.target.checked) setFile(null)
+                        if (error) setError('')
                       }}
                       className="w-4 h-4 accent-emerald-600"
                     />
@@ -218,8 +262,12 @@ export default function Analyze() {
                   type="file"
                   accept="application/pdf"
                   onChange={(e) => {
-                    setFile(e.target.files?.[0] || null)
-                    if (e.target.files?.[0]) setUseProfileResume(false)
+                    const selected = e.target.files?.[0] || null
+                    setFile(selected)
+                    if (selected) {
+                      setUseProfileResume(false)
+                      if (error) setError('')
+                    }
                   }}
                   className="hidden"
                 />
@@ -264,7 +312,10 @@ export default function Analyze() {
 
               <textarea
                 value={jd}
-                onChange={(e) => setJd(e.target.value)}
+                onChange={(e) => {
+                  setJd(e.target.value)
+                  if (error) setError('')
+                }}
                 rows={8}
                 placeholder="Paste the complete job description here (responsibilities, required skills, tools, qualifications)..."
                 className="w-full border border-gray-200 rounded-2xl p-4 text-xs sm:text-sm focus:outline-none focus:border-emerald-500 transition resize-none bg-gray-50/40"

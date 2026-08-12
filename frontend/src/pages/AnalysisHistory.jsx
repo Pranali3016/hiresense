@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { FileText, ChevronDown, Calendar, Search, CheckCircle2, AlertCircle, Sparkles, ArrowRight } from 'lucide-react'
+import { FileText, ChevronDown, Calendar, Search, CheckCircle2, AlertCircle, Sparkles, ArrowRight, RotateCcw } from 'lucide-react'
 import DashboardLayout from '../components/DashboardLayout'
+import { extractErrorMessage } from '../utils/apiError'
 
 export default function AnalysisHistory() {
   const navigate = useNavigate()
@@ -11,23 +12,37 @@ export default function AnalysisHistory() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [filterTab, setFilterTab] = useState('all') // 'all', 'high', 'gaps'
+  const [filterTab, setFilterTab] = useState('all')
+  const isMountedRef = useRef(true)
 
-  useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const res = await axios.get(
-          `${import.meta.env.VITE_API_URL}/api/v1/dashboard/history`,
-          { headers: { Authorization: `Bearer ${localStorage.getItem('hiresense_token')}` }, timeout: 20000 }
-        )
+  const fetchHistory = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_API_URL}/api/v1/dashboard/history`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem('hiresense_token')}` }, timeout: 20000 }
+      )
+      if (isMountedRef.current) {
         setAnalyses(res.data.analyses || [])
-      } catch (e) {
-        setError('Could not load your analysis history.')
-      } finally {
+      }
+    } catch (e) {
+      if (isMountedRef.current) {
+        setError(extractErrorMessage(e, 'Could not load your analysis history.'))
+      }
+    } finally {
+      if (isMountedRef.current) {
         setLoading(false)
       }
     }
+  }
+
+  useEffect(() => {
+    isMountedRef.current = true
     fetchHistory()
+    return () => {
+      isMountedRef.current = false
+    }
   }, [])
 
   const scoreBadgeStyle = (score) => {
@@ -55,16 +70,16 @@ export default function AnalysisHistory() {
       title="Analysis History"
       subtitle={`${analyses.length} total career evaluation${analyses.length === 1 ? '' : 's'} recorded`}
       action={
-        <button onClick={() => navigate('/analyze')} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm shadow-emerald-600/20 transition flex items-center gap-1.5 whitespace-nowrap">
+        <button onClick={() => navigate('/analyze')} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-sm shadow-emerald-600/20 transition flex items-center gap-1.5 whitespace-nowrap">
           <Sparkles className="w-4 h-4" />
           <span>+ New Analysis</span>
         </button>
       }
     >
-      <div className="max-w-4xl space-y-6">
+      <div className="max-w-4xl space-y-5 sm:space-y-6">
         {/* Search & Filter Header */}
         {analyses.length > 0 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
             <div className="relative w-full sm:w-72">
               <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
@@ -104,26 +119,46 @@ export default function AnalysisHistory() {
           </div>
         )}
 
-        {loading && <div className="text-sm text-gray-400 py-16 text-center">Loading your history...</div>}
-        {error && <div className="bg-red-50 text-red-600 text-sm rounded-xl p-4">{error}</div>}
+        {loading && !analyses.length && (
+          <div className="text-xs sm:text-sm text-gray-400 py-16 text-center animate-pulse">
+            Loading your analysis history...
+          </div>
+        )}
 
-        {!loading && analyses.length === 0 && (
-          <div className="bg-white border border-gray-100 rounded-2xl p-10 sm:p-14 text-center shadow-sm">
+        {error && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button
+              onClick={fetchHistory}
+              disabled={loading}
+              className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 self-end sm:self-auto text-xs"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Retry</span>
+            </button>
+          </div>
+        )}
+
+        {!loading && analyses.length === 0 && !error && (
+          <div className="bg-white border border-gray-100 rounded-3xl p-8 sm:p-14 text-center shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-4">
               <FileText className="w-6 h-6" />
             </div>
             <h3 className="text-base font-bold text-gray-900 mb-1">No analyses yet</h3>
-            <p className="text-sm text-gray-400 max-w-sm mx-auto mb-6">
+            <p className="text-xs sm:text-sm text-gray-400 max-w-sm mx-auto mb-6">
               Upload your resume and a target job description to get instant AI match scoring & gap suggestions.
             </p>
-            <button onClick={() => navigate('/analyze')} className="bg-emerald-600 text-white text-sm font-semibold px-6 py-3 rounded-xl hover:bg-emerald-700 transition shadow-sm">
+            <button onClick={() => navigate('/analyze')} className="bg-emerald-600 text-white text-xs sm:text-sm font-semibold px-6 py-3 rounded-2xl hover:bg-emerald-700 transition shadow-sm">
               Run your first analysis →
             </button>
           </div>
         )}
 
         {!loading && filteredAnalyses.length === 0 && analyses.length > 0 && (
-          <div className="text-center py-12 text-sm text-gray-400 bg-white border border-gray-100 rounded-2xl">
+          <div className="text-center py-12 text-xs sm:text-sm text-gray-400 bg-white border border-gray-100 rounded-3xl">
             No analyses match your current search or filter criteria.
           </div>
         )}
@@ -133,19 +168,18 @@ export default function AnalysisHistory() {
             <div key={a.id} className="bg-white border border-gray-100 hover:border-emerald-200 rounded-2xl shadow-sm overflow-hidden transition-all duration-200">
               <button
                 onClick={() => setExpanded(expanded === a.id ? null : a.id)}
-                className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left hover:bg-gray-50/70 transition"
+                className="w-full flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 sm:py-4 text-left hover:bg-gray-50/70 transition"
               >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 font-extrabold text-sm border ${scoreBadgeStyle(a.overall_score)}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center flex-shrink-0 font-extrabold text-xs sm:text-sm border ${scoreBadgeStyle(a.overall_score)}`}>
                     {a.overall_score}%
                   </div>
                   <div className="min-w-0">
-                    <div className="text-base font-bold text-gray-900 truncate">{a.job_title || 'Untitled Role'}</div>
-                    <div className="text-xs text-gray-400 flex items-center gap-1.5 mt-0.5">
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>{formatDate(a.created_at)}</span>
+                    <div className="text-sm sm:text-base font-bold text-gray-900 truncate">{a.job_title || 'Untitled Role'}</div>
+                    <div className="text-[11px] sm:text-xs text-gray-400 flex items-center gap-1.5 mt-0.5 flex-wrap">
+                      <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> {formatDate(a.created_at)}</span>
                       <span className="mx-1">•</span>
-                      <span>{a.matched_skills?.length || 0} matched skills</span>
+                      <span>{a.matched_skills?.length || 0} matched</span>
                       <span className="mx-1">•</span>
                       <span className="text-red-500">{a.missing_skills?.length || 0} gaps</span>
                     </div>
@@ -158,10 +192,10 @@ export default function AnalysisHistory() {
               </button>
 
               {expanded === a.id && (
-                <div className="px-5 pb-5 pt-3 border-t border-gray-100 bg-gray-50/50 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="px-4 sm:px-5 pb-5 pt-3 border-t border-gray-100 bg-gray-50/50 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
                     {/* Matched Skills */}
-                    <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+                    <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 uppercase tracking-wider mb-2.5">
                         <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                         <span>Matched Skills ({a.matched_skills?.length || 0})</span>
@@ -179,7 +213,7 @@ export default function AnalysisHistory() {
                     </div>
 
                     {/* Missing Skills / Gaps */}
-                    <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+                    <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-red-600 uppercase tracking-wider mb-2.5">
                         <AlertCircle className="w-4 h-4 text-red-500" />
                         <span>Skill Gaps ({a.missing_skills?.length || 0})</span>
@@ -211,4 +245,3 @@ export default function AnalysisHistory() {
     </DashboardLayout>
   )
 }
-

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { ChevronDown, ChevronUp, Sparkles, CheckCircle2, AlertCircle, FileText, ArrowLeft, Users } from 'lucide-react'
+import { ChevronDown, ChevronUp, Sparkles, CheckCircle2, AlertCircle, RotateCcw, ArrowLeft } from 'lucide-react'
+import { extractErrorMessage } from '../utils/apiError'
 
 export default function RecruiterResults() {
   const { jobId } = useParams()
@@ -10,34 +11,50 @@ export default function RecruiterResults() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [expandedId, setExpandedId] = useState(null)
+  const isMountedRef = useRef(true)
+
+  const fetchResults = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_API_URL}/api/v1/recruiter/job/${jobId}`,
+        { headers: { 'Authorization': `Bearer ${localStorage.getItem('hiresense_token')}` }, timeout: 30000 }
+      )
+      if (isMountedRef.current) {
+        setData(res.data)
+      }
+    } catch (e) {
+      if (isMountedRef.current) {
+        setError(extractErrorMessage(e, 'Could not load candidate results. Please try again.'))
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
+    }
+  }
 
   useEffect(() => {
+    isMountedRef.current = true
     const cached = localStorage.getItem('hiresense_recruiter_result')
     if (cached) {
-      const parsed = JSON.parse(cached)
-      if (String(parsed.job_posting_id) === String(jobId)) {
-        setData(parsed)
-        setLoading(false)
-        return
+      try {
+        const parsed = JSON.parse(cached)
+        if (String(parsed.job_posting_id) === String(jobId)) {
+          setData(parsed)
+          setLoading(false)
+          return
+        }
+      } catch (_) {
+        // Fallback to network fetch
       }
     }
 
-    const fetchResults = async () => {
-      setLoading(true)
-      setError('')
-      try {
-        const res = await axios.get(
-          `${import.meta.env.VITE_API_URL}/api/v1/recruiter/job/${jobId}`,
-          { headers: { 'Authorization': `Bearer ${localStorage.getItem('hiresense_token')}` }, timeout: 30000 }
-        )
-        setData(res.data)
-      } catch (e) {
-        setError('Could not load results. Please try again.')
-      } finally {
-        setLoading(false)
-      }
-    }
     fetchResults()
+    return () => {
+      isMountedRef.current = false
+    }
   }, [jobId])
 
   const getScoreBadgeStyle = (score) => {
@@ -75,9 +92,20 @@ export default function RecruiterResults() {
           </div>
         )}
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 text-xs sm:text-sm rounded-2xl p-4 font-semibold">
-            {error}
+        {error && !data && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <span className="font-semibold">{error}</span>
+            </div>
+            <button
+              onClick={fetchResults}
+              disabled={loading}
+              className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 self-end sm:self-auto text-xs"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Retry</span>
+            </button>
           </div>
         )}
 
@@ -87,7 +115,7 @@ export default function RecruiterResults() {
               <div>
                 <span className="text-[10px] sm:text-xs font-bold text-emerald-600 uppercase tracking-wider block mb-1">Hiring Benchmark</span>
                 <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 tracking-tight">{data.job_title || 'Ranked Candidates'}</h1>
-                <p className="text-xs text-gray-400 mt-0.5">{data.candidates.length} candidates evaluated and scored</p>
+                <p className="text-xs text-gray-400 mt-0.5">{data.candidates?.length || 0} candidates evaluated and scored</p>
               </div>
               <button
                 onClick={() => navigate('/recruiter/analyze')}
@@ -104,7 +132,7 @@ export default function RecruiterResults() {
             )}
 
             <div className="space-y-3">
-              {data.candidates.map((c, i) => (
+              {data.candidates?.map((c, i) => (
                 <div key={c.id} className="bg-white border border-gray-100 hover:border-emerald-200 rounded-2xl overflow-hidden shadow-sm transition-all duration-200">
                   {/* Collapsed Header */}
                   <div

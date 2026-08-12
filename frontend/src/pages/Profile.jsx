@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import {
   User, Target, MapPin, UploadCloud, FileCheck2, LogOut, Sparkles,
-  Briefcase, CheckCircle2, Shield, Globe, Link2, Code2, Save, Camera, Trash2
+  Briefcase, CheckCircle2, Shield, Globe, Link2, Code2, Save, Camera, Trash2,
+  AlertCircle, RotateCcw
 } from 'lucide-react'
 import DashboardLayout from '../components/DashboardLayout'
+import { extractErrorMessage } from '../utils/apiError'
 
 const ROLE_SUGGESTIONS = [
   'Fresher', 'AI/ML Engineer', 'Data Scientist', 'Data Analyst',
@@ -38,26 +40,40 @@ export default function Profile() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [activeTab, setActiveTab] = useState('career')
+  const isMountedRef = useRef(true)
 
   const authHeaders = { Authorization: `Bearer ${localStorage.getItem('hiresense_token')}` }
 
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const res = await axios.get(
-          `${import.meta.env.VITE_API_URL}/api/v1/auth/me`,
-          { headers: authHeaders, timeout: 20000 }
-        )
+  const fetchProfile = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_API_URL}/api/v1/auth/me`,
+        { headers: authHeaders, timeout: 20000 }
+      )
+      if (isMountedRef.current) {
         setProfile(res.data)
         setTargetRole(res.data.target_role || '')
         setLocation(res.data.location || '')
-      } catch (e) {
-        setError('Could not load your profile. Please try again.')
-      } finally {
+      }
+    } catch (e) {
+      if (isMountedRef.current) {
+        setError(extractErrorMessage(e, 'Could not load your profile. Please try again.'))
+      }
+    } finally {
+      if (isMountedRef.current) {
         setLoading(false)
       }
     }
+  }
+
+  useEffect(() => {
+    isMountedRef.current = true
     fetchProfile()
+    return () => {
+      isMountedRef.current = false
+    }
   }, [])
 
   const handleLogout = () => {
@@ -74,14 +90,20 @@ export default function Profile() {
       setError('Please select a valid image file (JPG, PNG, WebP).')
       return
     }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Profile photo must be less than 2MB.')
+      return
+    }
 
     const reader = new FileReader()
     reader.onloadend = () => {
-      const base64Photo = reader.result
-      setPhoto(base64Photo)
-      localStorage.setItem('hiresense_candidate_photo', base64Photo)
-      window.dispatchEvent(new Event('hiresense_avatar_updated'))
-      setSuccess('Profile photo updated successfully!')
+      if (isMountedRef.current) {
+        const base64Photo = reader.result
+        setPhoto(base64Photo)
+        localStorage.setItem('hiresense_candidate_photo', base64Photo)
+        window.dispatchEvent(new Event('hiresense_avatar_updated'))
+        setSuccess('Profile photo updated successfully!')
+      }
     }
     reader.readAsDataURL(file)
   }
@@ -97,24 +119,37 @@ export default function Profile() {
     setError('')
     setSuccess('')
     setSaving(true)
+
     try {
       const formData = new FormData()
       formData.append('target_role', targetRole.trim())
       formData.append('location', location.trim())
-      if (resume) formData.append('resume', resume)
+      if (resume) {
+        if (!resume.name.toLowerCase().endsWith('.pdf')) {
+          setSaving(false)
+          return setError('Only PDF resumes are supported in the Resume Vault.')
+        }
+        formData.append('resume', resume)
+      }
 
       await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/onboarding/complete`,
         formData,
         { headers: { ...authHeaders, 'Content-Type': 'multipart/form-data' }, timeout: 60000 }
       )
-      setSuccess('Profile successfully updated!')
-      setResume(null)
-      setProfile((p) => ({ ...p, target_role: targetRole.trim(), location: location.trim(), has_resume: p.has_resume || !!resume }))
+      if (isMountedRef.current) {
+        setSuccess('Profile successfully updated!')
+        setResume(null)
+        setProfile((p) => ({ ...p, target_role: targetRole.trim(), location: location.trim(), has_resume: p.has_resume || !!resume }))
+      }
     } catch (e) {
-      setError(e.response?.data?.detail || 'Could not save changes. Please try again.')
+      if (isMountedRef.current) {
+        setError(extractErrorMessage(e, 'Could not save profile changes. Please try again.'))
+      }
     } finally {
-      setSaving(false)
+      if (isMountedRef.current) {
+        setSaving(false)
+      }
     }
   }
 
@@ -157,9 +192,26 @@ export default function Profile() {
       }
     >
       <div className="max-w-4xl space-y-6">
-        {loading && <div className="text-center py-20 text-sm text-gray-400">Loading profile...</div>}
-        {error && <div className="bg-red-50 text-red-600 text-sm rounded-2xl p-4">{error}</div>}
-        {success && <div className="bg-emerald-50 text-emerald-700 text-sm rounded-2xl p-4 font-semibold">{success}</div>}
+        {loading && <div className="text-center py-20 text-xs sm:text-sm text-gray-400 animate-pulse">Loading candidate profile...</div>}
+        
+        {error && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button
+              onClick={fetchProfile}
+              disabled={loading}
+              className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 self-end sm:self-auto text-xs"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Retry</span>
+            </button>
+          </div>
+        )}
+
+        {success && <div className="bg-emerald-50 text-emerald-700 text-xs sm:text-sm rounded-2xl p-4 font-semibold border border-emerald-200">{success}</div>}
 
         {profile && (
           <>

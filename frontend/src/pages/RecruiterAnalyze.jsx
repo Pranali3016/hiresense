@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { Bell, LayoutDashboard, Settings, LogOut, ChevronDown, Upload, X, Sparkles, Users } from 'lucide-react'
+import { Bell, LogOut, ChevronDown, Upload, X, Sparkles, Users, AlertCircle, RotateCcw } from 'lucide-react'
+import { extractErrorMessage } from '../utils/apiError'
 
 const MAX_FILES = 25
+const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024 // 5MB
 
 export default function RecruiterAnalyze() {
   const navigate = useNavigate()
@@ -13,10 +15,18 @@ export default function RecruiterAnalyze() {
   const [error, setError] = useState('')
   const [profileOpen, setProfileOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  const isMountedRef = useRef(true)
 
   const email = localStorage.getItem('hiresense_email') || ''
   const name = localStorage.getItem('hiresense_name') || ''
   const initial = (name || email || '?').trim()[0]?.toUpperCase() || '?'
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   const handleLogout = () => {
     localStorage.removeItem('hiresense_token')
@@ -28,7 +38,19 @@ export default function RecruiterAnalyze() {
 
   const handleFileSelect = (e) => {
     const selected = Array.from(e.target.files)
-    const combined = [...files, ...selected].slice(0, MAX_FILES)
+    const valid = []
+    for (const f of selected) {
+      if (!f.name.toLowerCase().endsWith('.pdf')) {
+        setError(`Skipped '${f.name}': Only PDF files are supported.`)
+        continue
+      }
+      if (f.size > MAX_FILE_SIZE_BYTES) {
+        setError(`Skipped '${f.name}': Exceeds 5MB size limit.`)
+        continue
+      }
+      valid.push(f)
+    }
+    const combined = [...files, ...valid].slice(0, MAX_FILES)
     setFiles(combined)
   }
 
@@ -37,15 +59,17 @@ export default function RecruiterAnalyze() {
   }
 
   const handleSubmit = async () => {
-    if (files.length === 0) return setError('Please upload at least one candidate resume')
-    if (jd.trim().length < 50) return setError('Please paste the job description (at least 50 characters)')
+    // 1. Client-Side Input Validation
+    if (files.length === 0) return setError('Please upload at least one candidate resume PDF.')
+    const cleanJd = jd.trim()
+    if (cleanJd.length < 50) return setError(`Job description too short (${cleanJd.length} chars). Please enter at least 50 characters.`)
 
     setError('')
     setLoading(true)
 
     try {
       const formData = new FormData()
-      formData.append('job_description', jd)
+      formData.append('job_description', cleanJd)
       files.forEach((f) => formData.append('files', f))
 
       const response = await axios.post(
@@ -61,18 +85,19 @@ export default function RecruiterAnalyze() {
       )
 
       localStorage.setItem('hiresense_recruiter_result', JSON.stringify(response.data))
-      navigate(`/recruiter/results/${response.data.job_posting_id}`)
+      if (isMountedRef.current) {
+        navigate(`/recruiter/results/${response.data.job_posting_id}`)
+      }
 
     } catch (err) {
-      if (err.code === 'ECONNABORTED') {
-        setError('This is taking longer than usual with this many resumes. Please try again with fewer files.')
-      } else if (err.response) {
-        setError(err.response.data?.detail || `Server error: ${err.response.status}. Please try again.`)
-      } else {
-        setError('Network issue — please check your connection and try again.')
+      if (isMountedRef.current) {
+        const errorMsg = extractErrorMessage(err, 'Failed to rank candidates. Please check the files and try again.')
+        setError(errorMsg)
       }
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -203,13 +228,27 @@ export default function RecruiterAnalyze() {
               rows={7}
               placeholder="Paste the complete job description here (responsibilities, required skills, tools, qualifications)..."
               value={jd}
-              onChange={(e) => setJd(e.target.value)}
+              onChange={(e) => {
+                setJd(e.target.value)
+                if (error) setError('')
+              }}
             />
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 text-xs rounded-2xl p-4 font-semibold">
-              {error}
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="font-semibold">{error}</span>
+              </div>
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 self-end sm:self-auto text-xs"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>Retry</span>
+              </button>
             </div>
           )}
 

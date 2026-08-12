@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import axios from 'axios'
 import {
@@ -6,7 +6,8 @@ import {
   ArrowRight, ShieldCheck, CheckCircle2, ArrowLeft, AlertCircle
 } from 'lucide-react'
 
-import { evaluatePassword, validateEmail } from '../utils/validation'
+import { validateEmail } from '../utils/validation'
+import { extractErrorMessage } from '../utils/apiError'
 
 const FEATURES = [
   { icon: Target, title: 'AI Match Score', desc: 'Real-time resume overlap against job postings' },
@@ -24,8 +25,10 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(true)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const isMountedRef = useRef(true)
 
   useEffect(() => {
+    isMountedRef.current = true
     const oauthError = searchParams.get('oauth_error')
     if (oauthError) {
       if (oauthError === 'linkedin_not_configured') {
@@ -46,6 +49,9 @@ export default function Login() {
         setError(`OAuth error: ${oauthError}`)
       }
     }
+    return () => {
+      isMountedRef.current = false
+    }
   }, [searchParams])
 
   const handleOAuthRedirect = (provider) => {
@@ -58,13 +64,21 @@ export default function Login() {
   }
 
   const handleSubmit = async () => {
+    // 1. Client-Side Validation Before Request
     const emailCheck = validateEmail(email)
     if (!emailCheck.valid) {
       return setError(emailCheck.error)
     }
-    if (!password) return setError('Please enter your password.')
+    if (!password) {
+      return setError('Please enter your password.')
+    }
+    if (password.length < 8) {
+      return setError('Password must be at least 8 characters.')
+    }
+
     setError('')
     setLoading(true)
+
     try {
       const res = await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/auth/login`,
@@ -74,24 +88,17 @@ export default function Login() {
       localStorage.setItem('hiresense_token', res.data.access_token)
       localStorage.setItem('hiresense_email', res.data.email)
       localStorage.setItem('hiresense_name', res.data.name || '')
-      navigate(res.data.onboarding_completed ? '/analyze' : '/onboarding')
+      if (isMountedRef.current) {
+        navigate(res.data.onboarding_completed ? '/analyze' : '/onboarding')
+      }
     } catch (err) {
-      if (err.response?.data?.detail) {
-        const detail = err.response.data.detail
-        if (typeof detail === 'string') {
-          setError(detail)
-        } else if (Array.isArray(detail)) {
-          setError(detail.map(d => d.msg || d.message || JSON.stringify(d)).join(', '))
-        } else {
-          setError(JSON.stringify(detail))
-        }
-      } else if (err.message) {
-        setError(`Connection issue: ${err.message}. Please ensure backend is running at ${import.meta.env.VITE_API_URL}.`)
-      } else {
-        setError('Incorrect email or password. Please verify your credentials.')
+      if (isMountedRef.current) {
+        setError(extractErrorMessage(err, 'Incorrect email or password. Please verify your credentials.'))
       }
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -226,7 +233,10 @@ export default function Login() {
                       type="email"
                       placeholder="name@example.com"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value)
+                        if (error) setError('')
+                      }}
                       className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                     />
                   </div>
@@ -249,7 +259,10 @@ export default function Login() {
                       type={showPassword ? 'text' : 'password'}
                       placeholder="••••••••"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => {
+                        setPassword(e.target.value)
+                        if (error) setError('')
+                      }}
                       onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
                       className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-10 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                     />
