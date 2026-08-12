@@ -133,6 +133,11 @@ export default function RecruiterResults() {
   const [scorecardCandidate, setScorecardCandidate] = useState(null)
   const [scorecardData, setScorecardData] = useState(null)
   const [loadingScorecard, setLoadingScorecard] = useState(false)
+  const [scorecardScores, setScorecardScores] = useState({})
+  const [selectedRecommendation, setSelectedRecommendation] = useState('Hire')
+  const [scorecardNotes, setScorecardNotes] = useState('')
+  const [savingScorecard, setSavingScorecard] = useState(false)
+  const [scorecardSaved, setScorecardSaved] = useState(false)
 
   // Candidate Pool RAG Chat
   const [chatMessages, setChatMessages] = useState([])
@@ -280,14 +285,25 @@ export default function RecruiterResults() {
   const handleOpenScorecard = async (candidate) => {
     setScorecardCandidate(candidate)
     setScorecardData(null)
+    setScorecardScores({})
+    setSelectedRecommendation(candidate.status === 'rejected' ? 'No Hire' : candidate.overall_score >= 70 ? 'Strong Hire' : 'Hire')
+    setScorecardNotes(candidate.notes || '')
+    setScorecardSaved(false)
     setLoadingScorecard(true)
     try {
+      const token = localStorage.getItem('hiresense_token')
       const res = await axios.get(
         `${import.meta.env.VITE_API_URL}/api/v1/recruiter/candidate/${candidate.id}/scorecard`,
-        { headers: authHeaders, timeout: 35000 }
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 35000 }
       )
       if (isMountedRef.current) {
         setScorecardData(res.data)
+        const initialScores = {}
+        const defaultScore = candidate.overall_score >= 80 ? 5 : candidate.overall_score >= 65 ? 4 : candidate.overall_score >= 50 ? 3 : 2
+        res.data.technical_rubrics?.forEach((_, idx) => {
+          initialScores[idx] = defaultScore
+        })
+        setScorecardScores(initialScores)
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -297,6 +313,62 @@ export default function RecruiterResults() {
     } finally {
       if (isMountedRef.current) {
         setLoadingScorecard(false)
+      }
+    }
+  }
+
+  const handleSaveScorecard = async () => {
+    if (!scorecardCandidate) return
+    setSavingScorecard(true)
+    try {
+      const token = localStorage.getItem('hiresense_token')
+      const scoreValues = Object.values(scorecardScores)
+      const avgScore = scoreValues.length > 0 ? (scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length) : 3
+      const starRating = Math.min(5, Math.max(1, Math.round(avgScore)))
+      
+      let nextStatus = scorecardCandidate.status || 'under_review'
+      if (selectedRecommendation === 'Strong Hire' || selectedRecommendation === 'Hire') {
+        nextStatus = 'shortlisted'
+      } else if (selectedRecommendation === 'No Hire') {
+        nextStatus = 'rejected'
+      } else if (selectedRecommendation === 'Hold / Potential') {
+        nextStatus = 'under_review'
+      }
+
+      await axios.patch(
+        `${import.meta.env.VITE_API_URL}/api/v1/recruiter/candidate/${scorecardCandidate.id}/status`,
+        {
+          status: nextStatus,
+          notes: scorecardNotes,
+          star_rating: starRating
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+
+      if (isMountedRef.current) {
+        setScorecardSaved(true)
+        setData((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            candidates: prev.candidates.map((c) =>
+              c.id === scorecardCandidate.id
+                ? { ...c, status: nextStatus, notes: scorecardNotes, star_rating: starRating }
+                : c
+            )
+          }
+        })
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            setScorecardSaved(false)
+          }
+        }, 3000)
+      }
+    } catch (err) {
+      alert(extractErrorMessage(err, 'Failed to save scorecard evaluation.'))
+    } finally {
+      if (isMountedRef.current) {
+        setSavingScorecard(false)
       }
     }
   }
@@ -1305,54 +1377,93 @@ export default function RecruiterResults() {
               </div>
             ) : scorecardData ? (
               <div className="space-y-5 text-xs">
-                {/* Candidate Overview Strip */}
-                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+                {/* Candidate Overview & Real-Time Score Strip */}
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="font-extrabold text-gray-900 text-sm">{scorecardData.candidate_name}</div>
                     <div className="text-gray-500">{scorecardData.job_title} • {scorecardData.seniority_level}</div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="bg-emerald-50 text-emerald-800 font-extrabold px-3 py-1 rounded-xl border border-emerald-200">
                       Match Fit: {scorecardData.overall_score}%
                     </span>
+                    {/* Live Evaluated Score */}
+                    {Object.keys(scorecardScores).length > 0 && (
+                      <span className="bg-blue-50 text-blue-800 font-black px-3 py-1 rounded-xl border border-blue-200 flex items-center gap-1">
+                        <Star className="w-3.5 h-3.5 fill-blue-600 text-blue-600" />
+                        <span>
+                          Interview Rating:{' '}
+                          {(
+                            Object.values(scorecardScores).reduce((a, b) => a + b, 0) /
+                            Object.values(scorecardScores).length
+                          ).toFixed(1)}{' '}
+                          / 5.0
+                        </span>
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                {/* Technical Rubrics Table */}
+                {/* Technical Rubrics Table with Interactive 1-5 Scoring */}
                 <div className="space-y-2">
-                  <h4 className="font-black text-gray-900 uppercase tracking-wide text-[11px]">
-                    1. Technical Competencies &amp; Probing Questions (Rate 1 - 5)
+                  <h4 className="font-black text-gray-900 uppercase tracking-wide text-[11px] flex items-center justify-between">
+                    <span>1. Technical Competencies &amp; Probing Questions</span>
+                    <span className="text-gray-400 font-normal">Click 1 - 5 to score each skill</span>
                   </h4>
                   <div className="space-y-3">
-                    {scorecardData.technical_rubrics?.map((rubric, idx) => (
-                      <div key={idx} className="border border-gray-200 rounded-2xl p-4 bg-white space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="font-extrabold text-gray-900 text-xs bg-blue-50 text-blue-800 px-2.5 py-0.5 rounded-md">
-                            {rubric.competency}
-                          </span>
-                          <div className="flex items-center gap-1 text-[11px] font-bold text-gray-400">
-                            <span>Score:</span>
-                            <span className="border border-gray-300 rounded px-2 py-0.5 text-gray-800">___ / 5</span>
+                    {scorecardData.technical_rubrics?.map((rubric, idx) => {
+                      const currentScore = scorecardScores[idx] || 3
+                      return (
+                        <div key={idx} className="border border-gray-200 rounded-2xl p-4 bg-white space-y-2.5 shadow-xs">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <span className="font-extrabold text-gray-900 text-xs bg-blue-50 text-blue-800 px-2.5 py-0.5 rounded-md self-start">
+                              {rubric.competency}
+                            </span>
+                            
+                            {/* Interactive 1-5 Score Pills */}
+                            <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                              <span className="text-[11px] font-bold text-gray-500 mr-1">Score:</span>
+                              {[1, 2, 3, 4, 5].map((scoreNum) => (
+                                <button
+                                  key={scoreNum}
+                                  type="button"
+                                  onClick={() =>
+                                    setScorecardScores((prev) => ({ ...prev, [idx]: scoreNum }))
+                                  }
+                                  className={`w-7 h-7 rounded-lg text-xs font-black transition flex items-center justify-center ${
+                                    currentScore === scoreNum
+                                      ? scoreNum >= 4
+                                        ? 'bg-emerald-600 text-white shadow-xs scale-105'
+                                        : scoreNum === 3
+                                        ? 'bg-blue-600 text-white shadow-xs scale-105'
+                                        : 'bg-rose-600 text-white shadow-xs scale-105'
+                                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                                  }`}
+                                >
+                                  {scoreNum}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="font-semibold text-gray-800">
-                          <strong>Question to Ask:</strong> "{rubric.probing_question}"
-                        </div>
+                          <div className="font-semibold text-gray-800 text-xs leading-relaxed">
+                            <strong className="text-gray-950">Question to Ask:</strong> "{rubric.probing_question}"
+                          </div>
 
-                        <div className="grid sm:grid-cols-3 gap-2 pt-1 text-[11px]">
-                          <div className="bg-rose-50/60 p-2 rounded-xl text-rose-900 border border-rose-100">
-                            <strong>Score 1 (Unacceptable):</strong> {rubric.score_1_unacceptable}
-                          </div>
-                          <div className="bg-gray-50 p-2 rounded-xl text-gray-700 border border-gray-100">
-                            <strong>Score 3 (Competent):</strong> {rubric.score_3_competent}
-                          </div>
-                          <div className="bg-emerald-50/60 p-2 rounded-xl text-emerald-900 border border-emerald-100">
-                            <strong>Score 5 (Exceptional):</strong> {rubric.score_5_exceptional}
+                          <div className="grid sm:grid-cols-3 gap-2 pt-1 text-[11px]">
+                            <div className={`p-2 rounded-xl border transition ${currentScore <= 2 ? 'bg-rose-50 border-rose-300 text-rose-950 font-bold' : 'bg-rose-50/40 text-rose-900 border-rose-100'}`}>
+                              <strong>Score 1-2 (Unacceptable):</strong> {rubric.score_1_unacceptable}
+                            </div>
+                            <div className={`p-2 rounded-xl border transition ${currentScore === 3 ? 'bg-blue-50 border-blue-300 text-blue-950 font-bold' : 'bg-gray-50 text-gray-700 border-gray-100'}`}>
+                              <strong>Score 3-4 (Competent):</strong> {rubric.score_3_competent}
+                            </div>
+                            <div className={`p-2 rounded-xl border transition ${currentScore === 5 ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-bold' : 'bg-emerald-50/40 text-emerald-900 border-emerald-100'}`}>
+                              <strong>Score 5 (Exceptional):</strong> {rubric.score_5_exceptional}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
 
@@ -1365,30 +1476,96 @@ export default function RecruiterResults() {
                     {scorecardData.behavioral_rubrics?.map((b, i) => (
                       <div key={i} className="border border-gray-200 rounded-2xl p-3.5 bg-gray-50/40 space-y-1.5">
                         <div className="font-bold text-gray-900">{b.competency}</div>
-                        <p className="text-gray-600 italic">"{b.probing_question}"</p>
+                        <p className="text-gray-600 italic leading-relaxed">"{b.probing_question}"</p>
                         <div className="text-[11px] text-gray-500 pt-1">
-                          <strong>What to Look For:</strong> {b.look_for}
+                          <strong className="text-gray-800">What to Look For:</strong> {b.look_for}
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Final Decision Scale */}
-                <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-2">
+                {/* Final Hiring Recommendation (Mutually Exclusive Radio Cards) */}
+                <div className="bg-gray-50/70 border border-gray-200 rounded-2xl p-4 sm:p-5 space-y-3">
                   <h4 className="font-black text-gray-900 uppercase tracking-wide text-[11px]">
                     3. Final Hiring Recommendation
                   </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-                    {scorecardData.decision_scale?.map((d) => (
-                      <div key={d.label} className="bg-white border border-gray-200 rounded-xl p-2.5 space-y-1">
-                        <input type="checkbox" className="w-4 h-4 accent-emerald-600 rounded cursor-pointer" />
-                        <div className="font-bold text-gray-900">{d.label}</div>
-                        <div className="text-[10px] text-gray-400 leading-tight">{d.description}</div>
-                      </div>
-                    ))}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    {scorecardData.decision_scale?.map((d) => {
+                      const isSelected = selectedRecommendation === d.label
+                      return (
+                        <button
+                          key={d.label}
+                          type="button"
+                          onClick={() => setSelectedRecommendation(d.label)}
+                          className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between ${
+                            isSelected
+                              ? d.label.includes('Hire') && !d.label.includes('No')
+                                ? 'bg-emerald-50 border-emerald-400 text-emerald-950 ring-2 ring-emerald-500/20 shadow-xs'
+                                : d.label.includes('Hold')
+                                ? 'bg-indigo-50 border-indigo-400 text-indigo-950 ring-2 ring-indigo-500/20 shadow-xs'
+                                : 'bg-rose-50 border-rose-400 text-rose-950 ring-2 ring-rose-500/20 shadow-xs'
+                              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-black text-xs">{d.label}</span>
+                            {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                          </div>
+                          <div className="text-[10px] text-gray-500 leading-tight">{d.description}</div>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
+
+                {/* Interviewer Notes */}
+                <div className="space-y-1.5">
+                  <label className="font-bold text-gray-700 block text-xs">
+                    Interviewer Notes &amp; Observations
+                  </label>
+                  <textarea
+                    value={scorecardNotes}
+                    onChange={(e) => setScorecardNotes(e.target.value)}
+                    placeholder="Add specific comments on candidate coding style, architecture trade-offs, cultural alignment..."
+                    rows={3}
+                    className="w-full bg-white border border-gray-200 rounded-2xl p-3 text-xs focus:outline-none focus:border-emerald-500 transition"
+                  />
+                </div>
+
+                {/* Footer Save & Print Action Bar */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-gray-100">
+                  {scorecardSaved ? (
+                    <div className="text-emerald-700 font-extrabold text-xs flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Scorecard Evaluation Saved Successfully!</span>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-400">
+                      Saving automatically updates the candidate's star rating &amp; pipeline stage.
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setScorecardCandidate(null)}
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs px-4 py-2.5 rounded-xl transition"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveScorecard}
+                      disabled={savingScorecard}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 fill-current" />
+                      <span>{savingScorecard ? 'Saving Scorecard...' : '💾 Save Evaluation'}</span>
+                    </button>
+                  </div>
+                </div>
+
               </div>
             ) : null}
           </div>

@@ -294,6 +294,8 @@ def generate_candidate_outreach_email(
     posting = candidate.job_posting
     company = current_user.company_name or req.company_name or "HireSense"
     recruiter_name = current_user.name or "Talent Acquisition Lead"
+    matched = json.loads(candidate.matched_skills) if candidate.matched_skills else []
+    missing = json.loads(candidate.missing_skills) if candidate.missing_skills else []
 
     email_data = generate_outreach_email(
         candidate_name=candidate.candidate_name or "Candidate",
