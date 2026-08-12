@@ -1,12 +1,14 @@
 import json
+import logging
 from google import genai
 from google.genai import types
 from sqlalchemy.orm import Session, selectinload
 from app.core.config import settings
 from app.models.syllabus import Skill, Week, Module, Subtopic, Project, CapstoneProject
 from app.services.video_search import search_video_for_topic
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-client = genai.Client(api_key=settings.gemini_api_key)
+logger = logging.getLogger(__name__)
 
 
 def get_skill_from_db(db: Session, skill_name: str):
@@ -62,8 +64,132 @@ def skill_to_dict(skill: Skill) -> dict:
     }
 
 
+def get_fallback_syllabus_data(skill_name: str) -> dict:
+    """High-quality structured fallback syllabus when Gemini API is unavailable or quota is exceeded."""
+    formatted_name = skill_name.strip().title()
+    return {
+        "weeks_needed": 3,
+        "why_it_matters": f"{formatted_name} is an essential competency frequently required in modern software engineering and tech job descriptions.",
+        "prerequisite_summary": f"Basic programming fundamentals and command line familiarity.",
+        "weeks": [
+            {
+                "week_number": 1,
+                "modules": [
+                    {
+                        "title": f"{formatted_name} Architecture & Core Fundamentals",
+                        "subtopics": [
+                            f"Core concepts, mental model, and architecture of {formatted_name}",
+                            f"Environment setup, CLI tools, and configuration",
+                            f"Essential syntax, data types, and primary primitives",
+                            f"Handling common errors, debugging, and logging"
+                        ]
+                    },
+                    {
+                        "title": f"{formatted_name} Core Workflows & Operations",
+                        "subtopics": [
+                            f"Standard operational patterns in {formatted_name}",
+                            f"State management, lifecycle, and component flows",
+                            f"Integrating with external libraries and package management",
+                            f"Writing unit tests and assertions for {formatted_name}"
+                        ]
+                    }
+                ],
+                "projects": [
+                    {
+                        "title": f"{formatted_name} Starter Sandbox",
+                        "description": f"Build a clean end-to-end sandbox application verifying core {formatted_name} features."
+                    }
+                ]
+            },
+            {
+                "week_number": 2,
+                "modules": [
+                    {
+                        "title": f"Intermediate {formatted_name} & Data Pipelines",
+                        "subtopics": [
+                            f"Asynchronous workflows, concurrency, and performance tuning",
+                            f"Connecting {formatted_name} to REST APIs and database layers",
+                            f"Error boundaries, retry strategies, and resiliency",
+                            f"Security best practices, auth headers, and environment variables"
+                        ]
+                    },
+                    {
+                        "title": f"Real-World Integration Patterns",
+                        "subtopics": [
+                            f"Refactoring legacy implementations to modern {formatted_name} patterns",
+                            f"Modular structure and clean architecture separation",
+                            f"Continuous Integration (CI) test automation",
+                            f"Benchmarking throughput, latency, and resource usage"
+                        ]
+                    }
+                ],
+                "projects": [
+                    {
+                        "title": f"{formatted_name} Production Service Module",
+                        "description": f"Develop a robust microservice or component in {formatted_name} connected to a database and API."
+                    }
+                ]
+            },
+            {
+                "week_number": 3,
+                "modules": [
+                    {
+                        "title": f"Advanced {formatted_name} Optimization & Production Deployment",
+                        "subtopics": [
+                            f"Containerizing {formatted_name} with Docker for cloud deployment",
+                            f"Telemetry, monitoring, alerting, and distributed tracing",
+                            f"Scalability, caching strategies, and load management",
+                            f"Technical interview preparation and system design scenarios"
+                        ]
+                    }
+                ],
+                "projects": [
+                    {
+                        "title": f"{formatted_name} Production Deployment Pipeline",
+                        "description": f"Containerize and deploy the project to cloud staging with health check endpoints and automated tests."
+                    }
+                ]
+            }
+        ],
+        "capstone_projects": [
+            {
+                "title": f"Enterprise {formatted_name} Real-Time Dashboard",
+                "description": f"Full-stack production platform leveraging {formatted_name} with analytics, user auth, and background worker queues."
+            },
+            {
+                "title": f"Scalable High-Throughput {formatted_name} Service",
+                "description": f"Optimized backend microservice handling thousands of requests per second with caching, rate limiting, and Docker deployment."
+            },
+            {
+                "title": f"Open Source {formatted_name} Toolkit & Benchmark Suite",
+                "description": f"Comprehensive open-source utility package with automated CI/CD pipelines, documentation, and unit test suites."
+            }
+        ]
+    }
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
+def _call_gemini_api(client: genai.Client, prompt: str) -> str:
+    response = client.models.generate_content(
+        model="gemini-flash-latest",
+        contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json")
+    )
+    return response.text.strip()
+
+
 def generate_syllabus_with_gemini(skill_name: str) -> dict:
-    """Ask Gemini to build a full syllabus in our exact expected JSON format."""
+    """
+    Generate syllabus using Google Gemini with retry and fallback.
+    Never crashes even if Gemini is down or quota is exceeded.
+    """
+    if not settings.gemini_api_key or settings.gemini_api_key.startswith("your_"):
+        return get_fallback_syllabus_data(skill_name)
 
     prompt = f"""Generate a complete, in-depth learning syllabus for the skill: "{skill_name}".
 
@@ -95,41 +221,43 @@ Rules:
 - Cover this skill from basics to job-ready level
 - Each week represents 7 days at 2 hours/day (14 hours total) - make sure each week has ENOUGH content to genuinely fill that time. Use 4-6 modules per week (not 2-4), each with 4-6 subtopics
 - EVERY week must end with 1-2 small practice projects using only concepts covered in THAT week specifically
-- At the very end (top-level "capstone_projects"), include exactly 3 MAJOR portfolio-worthy projects that each combine concepts from across the whole syllabus - these are bigger and more substantial than the weekly practice projects
-- Base the number of weeks on realistic learning time at 2 hours/day, given the increased depth per week
+- At the very end (top-level "capstone_projects"), include exactly 3 MAJOR portfolio-worthy projects that each combine concepts from across the whole syllabus
 - Return ONLY the JSON object, nothing else"""
 
-    response = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json")
-    )
-    text = response.text.strip()
-    return json.loads(text)
+    try:
+        client = genai.Client(api_key=settings.gemini_api_key)
+        raw_json = _call_gemini_api(client, prompt)
+        parsed = json.loads(raw_json)
+        if "weeks" in parsed and isinstance(parsed["weeks"], list) and len(parsed["weeks"]) > 0:
+            return parsed
+        raise ValueError("Invalid syllabus schema received from LLM")
+    except Exception as e:
+        logger.warning(f"Gemini syllabus generation failed ({e}), using resilient fallback for '{skill_name}'")
+        return get_fallback_syllabus_data(skill_name)
 
 
 def save_syllabus_to_db(db: Session, skill_name: str, data: dict) -> Skill:
-    """Save Gemini's generated syllabus into our structured tables."""
+    """Save generated syllabus into structured database tables."""
     skill_lower = skill_name.lower().strip()
     skill = db.query(Skill).filter(Skill.name == skill_lower).first()
 
     if skill:
-        skill.weeks_needed = data["weeks_needed"]
+        skill.weeks_needed = data.get("weeks_needed", 3)
         skill.why_it_matters = data.get("why_it_matters", "")
     else:
         skill = Skill(
             name=skill_lower,
-            weeks_needed=data["weeks_needed"],
+            weeks_needed=data.get("weeks_needed", 3),
             why_it_matters=data.get("why_it_matters", ""),
         )
         db.add(skill)
 
     db.flush()
 
-    for week_data in data["weeks"]:
+    for week_data in data.get("weeks", []):
         week = Week(
             skill_id=skill.id,
-            week_number=week_data["week_number"],
+            week_number=week_data.get("week_number", 1),
             daily_hours=2,
         )
         db.add(week)
@@ -138,8 +266,8 @@ def save_syllabus_to_db(db: Session, skill_name: str, data: dict) -> Skill:
         for module_data in week_data.get("modules", []):
             module = Module(
                 week_id=week.id,
-                title=module_data["title"],
-                video_link=search_video_for_topic(module_data["title"]),
+                title=module_data.get("title", f"Module"),
+                video_link=search_video_for_topic(module_data.get("title", "")),
             )
             db.add(module)
             db.flush()
@@ -150,15 +278,15 @@ def save_syllabus_to_db(db: Session, skill_name: str, data: dict) -> Skill:
         for project_data in week_data.get("projects", []):
             db.add(Project(
                 week_id=week.id,
-                title=project_data["title"],
-                description=project_data["description"],
+                title=project_data.get("title", "Practice Project"),
+                description=project_data.get("description", "Hands-on implementation project"),
             ))
 
     for cp_data in data.get("capstone_projects", []):
         db.add(CapstoneProject(
             skill_id=skill.id,
-            title=cp_data["title"],
-            description=cp_data["description"],
+            title=cp_data.get("title", "Capstone Project"),
+            description=cp_data.get("description", "Comprehensive portfolio project"),
         ))
 
     db.commit()
@@ -167,7 +295,11 @@ def save_syllabus_to_db(db: Session, skill_name: str, data: dict) -> Skill:
 
 
 def get_or_create_syllabus(db: Session, skill_name: str) -> dict:
-    """Main entry point: check DB first, only call Gemini if truly missing."""
+    """
+    Main entry point: checks DB first.
+    If missing, calls Gemini with retries and graceful fallback.
+    Never throws uncaught 500 errors to the client.
+    """
     existing = get_skill_from_db(db, skill_name)
     if existing:
         return skill_to_dict(existing)
@@ -176,10 +308,18 @@ def get_or_create_syllabus(db: Session, skill_name: str) -> dict:
     try:
         saved_skill = save_syllabus_to_db(db, skill_name, generated_data)
         return skill_to_dict(saved_skill)
-    except Exception:
-        # Another simultaneous request likely created this skill first - use that instead
+    except Exception as e:
         db.rollback()
+        logger.warning(f"Database save conflict for syllabus '{skill_name}': {e}")
         existing = get_skill_from_db(db, skill_name)
         if existing:
             return skill_to_dict(existing)
-        raise
+        # Return generated data directly if database write temporarily fails
+        return {
+            "skill": skill_name.lower().strip(),
+            "weeks_needed": generated_data.get("weeks_needed", 3),
+            "why_it_matters": generated_data.get("why_it_matters", ""),
+            "prerequisite_summary": generated_data.get("prerequisite_summary", ""),
+            "weeks": generated_data.get("weeks", []),
+            "capstone_projects": generated_data.get("capstone_projects", [])
+        }

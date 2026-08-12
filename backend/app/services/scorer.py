@@ -1,8 +1,13 @@
 import re
+import logging
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from app.core.config import settings
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+logger = logging.getLogger(__name__)
+
 
 def calculate_skills_score(resume_skills: list, required_skills: list) -> dict:
     if not required_skills:
@@ -18,6 +23,7 @@ def calculate_skills_score(resume_skills: list, required_skills: list) -> dict:
     score = (len(matched) / len(required_skills)) * 100
     return {"score": round(score, 1), "matched": matched, "missing": missing}
 
+
 def calculate_experience_score(candidate_years: int, required_years: int, seniority: str) -> dict:
     if seniority == "junior" and candidate_years == 0:
         return {"score": 75, "note": "Entry level role - fresher eligible"}
@@ -31,16 +37,44 @@ def calculate_experience_score(candidate_years: int, required_years: int, senior
     else:
         return {"score": 40, "note": "Below experience requirement"}
 
+
 def calculate_overall_score(skills_score: float, experience_score: float) -> float:
     weighted = (skills_score * 0.70) + (experience_score * 0.30)
     return round(weighted, 1)
 
-def generate_explanation_with_groq(resume_data: dict, jd_data: dict, matched_skills: list, missing_skills: list, overall_score: float) -> str:
+
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=3),
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
+def _invoke_groq_chain(chain, payload: dict) -> str:
+    return chain.invoke(payload)
+
+
+def generate_explanation_with_groq(
+    resume_data: dict,
+    jd_data: dict,
+    matched_skills: list,
+    missing_skills: list,
+    overall_score: float
+) -> str:
+    """
+    Generate an AI score explanation using Groq LLM.
+    Protected with a 15-second timeout, 2 retries on transient network errors,
+    and a reliable rule-based fallback if the API is unavailable.
+    """
+    if not settings.groq_api_key or settings.groq_api_key.startswith("your_"):
+        return generate_rule_based_explanation(jd_data, matched_skills, missing_skills, overall_score)
+
     try:
         llm = ChatGroq(
             model="llama-3.3-70b-versatile",
             api_key=settings.groq_api_key,
-            temperature=0.3
+            temperature=0.3,
+            request_timeout=15.0,
+            max_retries=2
         )
         prompt = PromptTemplate(
             input_variables=["job_title", "overall_score", "matched_skills", "missing_skills", "experience_years", "required_experience"],
@@ -62,7 +96,7 @@ Write a 3-4 sentence analysis that:
 Be direct, encouraging, and specific. Write in paragraph form. No bullet points. You must use the exact score {overall_score} provided -- never invent or recompute your own score."""
         )
         chain = prompt | llm | StrOutputParser()
-        explanation = chain.invoke({
+        explanation = _invoke_groq_chain(chain, {
             "job_title": jd_data.get("job_title", "this role")[:60],
             "overall_score": overall_score,
             "matched_skills": ", ".join(matched_skills[:8]) if matched_skills else "none",
@@ -71,14 +105,19 @@ Be direct, encouraging, and specific. Write in paragraph form. No bullet points.
             "required_experience": jd_data.get("required_experience_years", 0)
         })
         explanation = explanation.strip()
-        # Safety net: force-replace any score Groq wrote with the real computed score,
-        # in case it ignores instructions and states a different number
         explanation = re.sub(r'\d+(\.\d+)?\s*/\s*100', f'{overall_score}/100', explanation)
         return explanation
     except Exception as e:
+        logger.warning(f"Groq explanation failed, using rule-based fallback: {e}")
         return generate_rule_based_explanation(jd_data, matched_skills, missing_skills, overall_score)
 
-def generate_rule_based_explanation(jd_data: dict, matched_skills: list, missing_skills: list, overall_score: float) -> str:
+
+def generate_rule_based_explanation(
+    jd_data: dict,
+    matched_skills: list,
+    missing_skills: list,
+    overall_score: float
+) -> str:
     job_title = jd_data.get("job_title", "this role")[:50]
     top_matched = matched_skills[:3]
     top_missing = missing_skills[:3]
@@ -95,6 +134,7 @@ def generate_rule_based_explanation(jd_data: dict, matched_skills: list, missing
     tip = f"Start with {missing_skills[0]} first — it will give you the highest return on learning time." if missing_skills else "Polish your resume bullet points to highlight measurable impact."
     return f"{opening} {strength} {gap} {tip}"
 
+
 def get_verdict(score: float) -> str:
     if score >= 80:
         return "Strong Match - Apply immediately"
@@ -104,6 +144,7 @@ def get_verdict(score: float) -> str:
         return "Partial Match - Build missing skills first"
     else:
         return "Low Match - Significant skill gaps to address"
+
 
 def score_resume_against_jd(resume_data: dict, jd_data: dict) -> dict:
     skills_result = calculate_skills_score(
@@ -116,7 +157,13 @@ def score_resume_against_jd(resume_data: dict, jd_data: dict) -> dict:
         jd_data.get("seniority_level", "mid")
     )
     overall_score = calculate_overall_score(skills_result["score"], experience_result["score"])
-    explanation = generate_explanation_with_groq(resume_data, jd_data, skills_result["matched"], skills_result["missing"], overall_score)
+    explanation = generate_explanation_with_groq(
+        resume_data,
+        jd_data,
+        skills_result["matched"],
+        skills_result["missing"],
+        overall_score
+    )
     return {
         "overall_score": overall_score,
         "skills_score": skills_result["score"],

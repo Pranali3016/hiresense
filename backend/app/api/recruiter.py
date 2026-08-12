@@ -1,8 +1,10 @@
+import logging
+from typing import List
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.rate_limiter import limit_analysis_requests
 from app.models.user import User, JobPosting
 from app.services.recruiter_service import (
     create_job_posting,
@@ -11,7 +13,10 @@ from app.services.recruiter_service import (
     MAX_RESUMES_PER_BATCH
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+MAX_PDF_SIZE_BYTES = 5 * 1024 * 1024  # 5MB per resume in batch
 
 
 def require_recruiter(current_user: User = Depends(get_current_user)) -> User:
@@ -20,42 +25,54 @@ def require_recruiter(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-@router.post("/rank-candidates")
+@router.post("/rank-candidates", dependencies=[Depends(limit_analysis_requests)])
 async def rank_candidates(
     job_description: str = Form(...),
     files: List[UploadFile] = File(...),
     current_user: User = Depends(require_recruiter),
     db: Session = Depends(get_db)
 ):
-    if len(job_description.strip()) < 50:
-        raise HTTPException(status_code=400, detail="Job description too short")
+    clean_jd = job_description.strip()
+    if len(clean_jd) < 50:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job description too short ({len(clean_jd)} chars). Please provide at least 50 characters."
+        )
 
     if len(files) == 0:
-        raise HTTPException(status_code=400, detail="Please upload at least one resume")
+        raise HTTPException(status_code=400, detail="Please upload at least one candidate resume.")
 
     if len(files) > MAX_RESUMES_PER_BATCH:
         raise HTTPException(
             status_code=400,
-            detail=f"Maximum {MAX_RESUMES_PER_BATCH} resumes per batch. You uploaded {len(files)}."
+            detail=f"Maximum {MAX_RESUMES_PER_BATCH} resumes allowed per batch. You provided {len(files)}."
         )
 
     for f in files:
-        if not f.filename.endswith(".pdf"):
-            raise HTTPException(status_code=400, detail=f"'{f.filename}' is not a PDF. Only PDF files allowed.")
+        if not f.filename or not f.filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail=f"'{f.filename}' is not a valid PDF file. Only PDF resumes are accepted.")
 
-    posting, jd_data = create_job_posting(db, current_user.id, job_description)
+    try:
+        posting, jd_data = create_job_posting(db, current_user.id, clean_jd)
+    except Exception as e:
+        logger.exception(f"Failed to create job posting: {e}")
+        raise HTTPException(status_code=500, detail="Failed to initialize job posting. Please try again.")
 
     results = []
     errors = []
     for f in files:
         try:
             file_bytes = await f.read()
-            if len(file_bytes) > 5 * 1024 * 1024:
-                errors.append({"filename": f.filename, "error": "File too large (max 5MB)"})
+            if len(file_bytes) == 0:
+                errors.append({"filename": f.filename, "error": "File is empty"})
+                continue
+            if len(file_bytes) > MAX_PDF_SIZE_BYTES:
+                errors.append({"filename": f.filename, "error": "File exceeds maximum size (5MB)"})
                 continue
             candidate = score_and_save_candidate(db, posting.id, jd_data, file_bytes, f.filename)
             results.append(candidate.id)
         except Exception as e:
+            logger.warning(f"Failed to process resume '{f.filename}' for posting {posting.id}: {e}")
             errors.append({"filename": f.filename, "error": "Could not process this file"})
 
     ranked = get_ranked_candidates(db, posting.id)
