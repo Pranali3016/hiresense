@@ -3,10 +3,14 @@ backend/__pycache__/
 backend/**/__pycache__/
 backend/**/*.pyc
 backend/.env
+backend/.env.*
 backend/chromadb_store/
 backend/test_resume.txt
+backend/*.log
 frontend/node_modules/
 frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
 .DS_Store
 desktop.ini
 Thumbs.db

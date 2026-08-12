@@ -6,6 +6,8 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import RecruiterLogin from './pages/RecruiterLogin'
 import RecruiterSignup from './pages/RecruiterSignup'
+import RecruiterOnboarding from './pages/RecruiterOnboarding'
+import RecruiterDashboard from './pages/RecruiterDashboard'
 import RecruiterAnalyze from './pages/RecruiterAnalyze'
 import RecruiterResults from './pages/RecruiterResults'
 import Onboarding from './pages/Onboarding'
@@ -35,8 +37,9 @@ export default function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/recruiter/login" element={<RecruiterLogin />} />
           <Route path="/recruiter/signup" element={<RecruiterSignup />} />
+          <Route path="/recruiter/onboarding" element={<RequireAuth><RecruiterOnboarding /></RequireAuth>} />
+          <Route path="/recruiter/dashboard" element={<RequireAuth><RecruiterDashboard /></RequireAuth>} />
           <Route path="/recruiter/analyze" element={<RequireAuth><RecruiterAnalyze /></RequireAuth>} />
-          <Route path="/recruiter/dashboard" element={<RequireAuth><RecruiterAnalyze /></RequireAuth>} />
           <Route path="/recruiter/results/:jobId" element={<RequireAuth><RecruiterResults /></RequireAuth>} />
           <Route path="/oauth/callback" element={<OAuthCallback />} />
           <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />

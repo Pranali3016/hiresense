@@ -8,7 +8,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     youtube_api_key: str = ""
     secret_key: str = "hiresense_super_secret_production_key_2026"
-    environment: str = "production"
+    cerebras_api_key: str = ""
+    openrouter_api_key: str = ""
+    sambanova_api_key: str = ""
 
     # Google OAuth settings (Supports both naming conventions)
     google_oauth_client_id: str = ""

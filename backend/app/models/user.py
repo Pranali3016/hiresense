@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -18,6 +18,11 @@ class User(Base):
     resume_text = Column(Text, nullable=True)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     role = Column(String(20), default="candidate", nullable=False)
+    company_name = Column(String(255), nullable=True)
+    company_website = Column(String(255), nullable=True)
+    recruiter_title = Column(String(150), nullable=True)
+    company_size = Column(String(50), nullable=True)
+    hiring_domain = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     analyses = relationship("Analysis", back_populates="user", cascade="all, delete-orphan")
@@ -86,10 +91,20 @@ class CandidateMatch(Base):
     job_posting_id = Column(Integer, ForeignKey("job_postings.id"), nullable=False)
     candidate_name = Column(String(200), nullable=True)
     resume_filename = Column(String(300), nullable=True)
+    resume_text = Column(Text, nullable=True)
     overall_score = Column(Integer, nullable=True)
+    years_of_experience = Column(Integer, default=0, nullable=True)
+    seniority_level = Column(String(50), default="Junior", nullable=True)
+    estimated_salary_range = Column(String(100), nullable=True)
     matched_skills = Column(Text, nullable=True)
     missing_skills = Column(Text, nullable=True)
     explanation = Column(Text, nullable=True)
+    status = Column(String(50), default="under_review", nullable=True)
+    notes = Column(Text, nullable=True)
+    star_rating = Column(Integer, default=0, nullable=True)
+    summary_pitch = Column(Text, nullable=True)
+    resume_pdf_data = Column(LargeBinary, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     job_posting = relationship("JobPosting", back_populates="candidates")
+

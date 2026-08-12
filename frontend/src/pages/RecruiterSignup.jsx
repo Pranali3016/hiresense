@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import axios from 'axios'
 import {
   Users, Search, BarChart3, MessageSquare, User, Mail, Lock, Eye, EyeOff,
-  Sparkles, CheckCircle2, ArrowRight, ArrowLeft, AlertCircle, Check
+  Sparkles, CheckCircle2, ArrowRight, ArrowLeft, AlertCircle, Check, Building2
 } from 'lucide-react'
 import { evaluatePassword, validateEmail } from '../utils/validation'
 
@@ -18,6 +18,7 @@ export default function RecruiterSignup() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [companyName, setCompanyName] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -51,14 +52,23 @@ export default function RecruiterSignup() {
     try {
       const res = await axios.post(
         `${import.meta.env.VITE_API_URL}/api/v1/auth/signup`,
-        { name: name.trim(), email: email.trim().toLowerCase(), password, role: 'recruiter' },
+        {
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          role: 'recruiter',
+          company_name: companyName.trim() || undefined
+        },
         { timeout: 30000 }
       )
       localStorage.setItem('hiresense_token', res.data.access_token)
       localStorage.setItem('hiresense_email', res.data.email)
       localStorage.setItem('hiresense_name', res.data.name || '')
       localStorage.setItem('hiresense_role', res.data.role || 'recruiter')
-      navigate('/recruiter/dashboard')
+      if (companyName.trim()) {
+        localStorage.setItem('hiresense_company', companyName.trim())
+      }
+      navigate('/recruiter/onboarding')
     } catch (err) {
       if (err.response?.data?.detail) {
         const detail = err.response.data.detail
@@ -199,6 +209,20 @@ export default function RecruiterSignup() {
                       placeholder="sarah@company.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-700 block">Company / Organization Name</label>
+                  <div className="relative">
+                    <Building2 className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="e.g. Stripe, Acme AI, Figma..."
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
                       className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
                     />
                   </div>

@@ -40,7 +40,18 @@ export default function RecruiterLogin() {
       localStorage.setItem('hiresense_email', res.data.email)
       localStorage.setItem('hiresense_name', res.data.name || '')
       localStorage.setItem('hiresense_role', res.data.role)
-      navigate('/recruiter/dashboard')
+      if (res.data.company_name) {
+        localStorage.setItem('hiresense_company', res.data.company_name)
+      }
+      if (res.data.recruiter_title) {
+        localStorage.setItem('hiresense_title', res.data.recruiter_title)
+      }
+
+      if (!res.data.onboarding_completed) {
+        navigate('/recruiter/onboarding')
+      } else {
+        navigate('/recruiter/dashboard')
+      }
     } catch (err) {
       if (err.response?.data?.detail) {
         const detail = err.response.data.detail
@@ -58,7 +69,7 @@ export default function RecruiterLogin() {
   }
 
   return (
-    <div className="h-screen overflow-y-auto overflow-x-hidden bg-gray-50 relative flex items-center justify-center px-4 lg:px-10 py-4">
+    <div className="min-h-screen bg-gray-50 relative flex items-center justify-center px-4 sm:px-6 lg:px-10 py-8 sm:py-12 selection:bg-emerald-500 selection:text-white overflow-x-hidden">
       <div className="absolute -top-24 -left-24 w-72 h-72 bg-emerald-200/40 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-24 -right-16 w-72 h-72 bg-violet-200/30 rounded-full blur-3xl pointer-events-none" />
 
