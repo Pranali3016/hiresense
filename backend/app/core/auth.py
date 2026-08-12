@@ -1,21 +1,24 @@
 from datetime import datetime, timedelta
 import bcrypt
-from jose import jwt
+from jose import jwt, JWTError
 from app.core.config import settings
+from fastapi import Depends, HTTPException, Header
+from sqlalchemy.orm import Session
+from app.core.database import get_db
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_DAYS = 30
+ACCESS_TOKEN_EXPIRE_DAYS = 7
 
 
 def hash_password(plain_password: str) -> str:
     """Scramble a plain password into an unreadable bcrypt hash before storing it."""
     pwd_bytes = plain_password.encode("utf-8")
-    salt = bcrypt.gensalt()
+    salt = bcrypt.gensalt(rounds=12)
     return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Check if a plain password matches a stored bcrypt hash."""
+    """Check if a plain password matches a stored bcrypt hash in constant time."""
     try:
         return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
     except Exception:
@@ -23,45 +26,47 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(user_id: int, email: str) -> str:
-    """Create a temporary 'keycard' (JWT) proving who the user is."""
+    """Create a tamper-proof signed JWT token proving the user's identity."""
     expire = datetime.utcnow() + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": str(user_id),
-        "email": email,
-        "exp": expire
+        "email": email.lower().strip(),
+        "exp": expire,
+        "iat": datetime.utcnow()
     }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict | None:
-    """Verify a keycard is valid and read who it belongs to. Returns None if invalid/expired."""
+    """Verify cryptographic signature and expiration of the JWT token."""
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
         return payload
-    except Exception:
+    except (JWTError, Exception):
         return None
 
 
-from fastapi import Depends, HTTPException, Header
-from sqlalchemy.orm import Session
-from app.core.database import get_db
-
-
 def get_current_user(authorization: str = Header(None), db: Session = Depends(get_db)):
-    """Checks the incoming request's token (the 'keycard') and returns the logged-in user.
-    Rejects the request if the token is missing, invalid, or expired."""
+    """
+    Strict security dependency that extracts and validates the Bearer token.
+    Enforces expiration, subject integrity, and user existence in the database.
+    """
     from app.models.user import User
 
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated - please log in")
+        raise HTTPException(status_code=401, detail="Authentication required. Missing Bearer token.")
 
-    token = authorization.replace("Bearer ", "")
+    token = authorization.replace("Bearer ", "").strip()
     payload = decode_access_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired session - please log in again")
+        raise HTTPException(status_code=401, detail="Session expired or invalid. Please log in again.")
 
-    user = db.query(User).filter(User.id == int(payload["sub"])).first()
+    sub = payload.get("sub")
+    if not sub or not str(sub).isdigit():
+        raise HTTPException(status_code=401, detail="Malformed session token subject.")
+
+    user = db.query(User).filter(User.id == int(sub)).first()
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(status_code=401, detail="User account no longer exists.")
 
     return user
