@@ -1,10 +1,12 @@
 import secrets
 import json
 import base64
+import urllib.parse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -26,15 +28,17 @@ def _get_backend_base_url(request: Request) -> str:
     """Dynamically determine the backend's public base URL based on incoming request headers."""
     proto = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-    
-    # If request is coming to a public host (e.g. onrender.com)
+
+    # Force HTTPS for public cloud hosts like onrender.com
+    if host and ("onrender.com" in host or "vercel.app" in host or "herokuapp.com" in host):
+        proto = "https"
+
     if host and "127.0.0.1" not in host and "localhost" not in host:
         return f"{proto}://{host}".rstrip("/")
-    
-    # Check if backend_base_url is explicitly configured in settings
+
     if settings.backend_base_url and "127.0.0.1" not in settings.backend_base_url and "localhost" not in settings.backend_base_url:
         return settings.backend_base_url.rstrip("/")
-    
+
     return f"{proto}://{host}".rstrip("/") if host else "http://127.0.0.1:8000"
 
 
@@ -43,28 +47,61 @@ def _redirect_uri(request: Request, provider: str) -> str:
     return f"{base}/api/v1/oauth/{provider}/callback"
 
 
+def _encode_state(payload: dict) -> str:
+    """Safely URL-safe base64 encode a JSON state payload."""
+    raw = json.dumps(payload).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def _decode_state(state: str) -> dict:
+    """Safely decode URL-safe base64 state payload with padding tolerance."""
+    if not state:
+        return {}
+    try:
+        # Add required padding characters if stripped
+        padded_state = state + "=" * (-len(state) % 4)
+        raw = base64.urlsafe_b64decode(padded_state.encode("utf-8")).decode("utf-8")
+        return json.loads(raw)
+    except Exception as e:
+        print(f"[OAuth] Warning: Failed to decode state: {e}")
+        return {}
+
+
 def _frontend_redirect(token=None, email=None, name=None, onboarding_completed=None, error=None, frontend_url=None) -> str:
     base = frontend_url or settings.frontend_base_url or "http://localhost:5173"
     base = base.rstrip("/")
     if error:
-        return f"{base}/oauth/callback?error={error}"
+        safe_error = urllib.parse.quote_plus(str(error))
+        return f"{base}/oauth/callback?error={safe_error}"
+    
+    safe_token = urllib.parse.quote_plus(str(token or ""))
+    safe_email = urllib.parse.quote_plus(str(email or ""))
+    safe_name = urllib.parse.quote_plus(str(name or ""))
     return (
         f"{base}/oauth/callback"
-        f"?token={token}&email={email or ''}&name={name or ''}&onboarding_completed={str(onboarding_completed).lower()}"
+        f"?token={safe_token}&email={safe_email}&name={safe_name}&onboarding_completed={str(onboarding_completed).lower()}"
     )
 
 
 def _find_or_create_oauth_user(db: Session, email: str, name: str, provider: str) -> User:
-    user = db.query(User).filter(User.email == email).first()
+    email_clean = email.lower().strip()
+    user = db.query(User).filter(func.lower(User.email) == email_clean).first()
     if user:
         if not user.name and name:
-            user.name = name
+            user.name = name.strip()
         if not user.oauth_provider:
             user.oauth_provider = provider
         db.commit()
         db.refresh(user)
         return user
-    user = User(email=email, name=name, hashed_password=None, oauth_provider=provider, role="candidate")
+    
+    user = User(
+        email=email_clean,
+        name=name.strip() if name else "",
+        hashed_password=None,
+        oauth_provider=provider,
+        role="candidate"
+    )
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -77,8 +114,12 @@ def google_login(request: Request, redirect_to: str = None):
         return RedirectResponse(_frontend_redirect(error="google_not_configured", frontend_url=redirect_to))
 
     redirect_uri = _redirect_uri(request, "google")
-    state_payload = {"origin": redirect_to, "redirect_uri": redirect_uri} if redirect_to else {"redirect_uri": redirect_uri}
-    state = base64.urlsafe_b64encode(json.dumps(state_payload).encode()).decode()
+    state_payload = {
+        "origin": redirect_to,
+        "redirect_uri": redirect_uri,
+        "nonce": secrets.token_urlsafe(12)
+    }
+    state = _encode_state(state_payload)
 
     params = {
         "client_id": settings.google_oauth_client_id,
@@ -89,31 +130,30 @@ def google_login(request: Request, redirect_to: str = None):
         "prompt": "select_account",
         "state": state
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
+    query = urllib.parse.urlencode(params)
     return RedirectResponse(f"{GOOGLE_AUTH_URL}?{query}")
 
 
 @router.get("/google/callback")
 def google_callback(request: Request, code: str = None, error: str = None, state: str = None, db: Session = Depends(get_db)):
-    frontend_url = None
-    redirect_uri = _redirect_uri(request, "google")
-    if state:
-        try:
-            state_data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
-            frontend_url = state_data.get("origin")
-            if state_data.get("redirect_uri"):
-                redirect_uri = state_data.get("redirect_uri")
-        except Exception:
-            pass
+    state_data = _decode_state(state) if state else {}
+    frontend_url = state_data.get("origin")
+    redirect_uri = state_data.get("redirect_uri") or _redirect_uri(request, "google")
 
-    if error or not code:
-        return RedirectResponse(_frontend_redirect(error=error or "access_denied", frontend_url=frontend_url))
+    if error:
+        print(f"[OAuth Google Callback] Error received from provider: {error}")
+        return RedirectResponse(_frontend_redirect(error=error, frontend_url=frontend_url))
+
+    if not code:
+        print("[OAuth Google Callback] Missing code in query parameters")
+        return RedirectResponse(_frontend_redirect(error="access_denied", frontend_url=frontend_url))
 
     if not settings.google_oauth_client_id or not settings.google_oauth_client_secret:
         return RedirectResponse(_frontend_redirect(error="google_not_configured", frontend_url=frontend_url))
 
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+            # 1. Exchange authorization code for token
             token_res = client.post(GOOGLE_TOKEN_URL, data={
                 "code": code,
                 "client_id": settings.google_oauth_client_id,
@@ -122,7 +162,7 @@ def google_callback(request: Request, code: str = None, error: str = None, state
                 "grant_type": "authorization_code",
             })
             if token_res.status_code != 200:
-                print(f"Google token exchange error: {token_res.status_code} {token_res.text}")
+                print(f"[OAuth Google Callback] Token exchange failed ({token_res.status_code}): {token_res.text}")
                 return RedirectResponse(_frontend_redirect(error="token_exchange_failed", frontend_url=frontend_url))
 
             token_data = token_res.json()
@@ -130,9 +170,10 @@ def google_callback(request: Request, code: str = None, error: str = None, state
             if not access_token:
                 return RedirectResponse(_frontend_redirect(error="no_access_token", frontend_url=frontend_url))
 
+            # 2. Fetch user profile from Google UserInfo
             userinfo_res = client.get(GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
             if userinfo_res.status_code != 200:
-                print(f"Google userinfo error: {userinfo_res.status_code} {userinfo_res.text}")
+                print(f"[OAuth Google Callback] Userinfo fetch failed ({userinfo_res.status_code}): {userinfo_res.text}")
                 return RedirectResponse(_frontend_redirect(error="userinfo_failed", frontend_url=frontend_url))
             info = userinfo_res.json()
 
@@ -141,12 +182,13 @@ def google_callback(request: Request, code: str = None, error: str = None, state
         if not email:
             return RedirectResponse(_frontend_redirect(error="no_email", frontend_url=frontend_url))
 
+        # 3. Create or link user in database
         user = _find_or_create_oauth_user(db, email, name, "google")
         jwt_token = create_access_token(user.id, user.email)
         return RedirectResponse(_frontend_redirect(jwt_token, user.email, user.name or "", user.onboarding_completed, frontend_url=frontend_url))
     except Exception as e:
-        print(f"Google OAuth Exception: {e}")
-        return RedirectResponse(_frontend_redirect(error=str(e), frontend_url=frontend_url))
+        print(f"[OAuth Google Callback] Exception during authentication: {e}")
+        return RedirectResponse(_frontend_redirect(error="auth_internal_error", frontend_url=frontend_url))
 
 
 @router.get("/linkedin/login")
@@ -155,8 +197,12 @@ def linkedin_login(request: Request, redirect_to: str = None):
         return RedirectResponse(_frontend_redirect(error="linkedin_not_configured", frontend_url=redirect_to))
 
     redirect_uri = _redirect_uri(request, "linkedin")
-    state_payload = {"origin": redirect_to, "redirect_uri": redirect_uri, "rnd": secrets.token_urlsafe(8)} if redirect_to else {"redirect_uri": redirect_uri, "rnd": secrets.token_urlsafe(8)}
-    state = base64.urlsafe_b64encode(json.dumps(state_payload).encode()).decode()
+    state_payload = {
+        "origin": redirect_to,
+        "redirect_uri": redirect_uri,
+        "nonce": secrets.token_urlsafe(12)
+    }
+    state = _encode_state(state_payload)
 
     params = {
         "response_type": "code",
@@ -165,31 +211,29 @@ def linkedin_login(request: Request, redirect_to: str = None):
         "scope": "openid profile email",
         "state": state,
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
+    query = urllib.parse.urlencode(params)
     return RedirectResponse(f"{LINKEDIN_AUTH_URL}?{query}")
 
 
 @router.get("/linkedin/callback")
 def linkedin_callback(request: Request, code: str = None, error: str = None, state: str = None, db: Session = Depends(get_db)):
-    frontend_url = None
-    redirect_uri = _redirect_uri(request, "linkedin")
-    if state:
-        try:
-            state_data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
-            frontend_url = state_data.get("origin")
-            if state_data.get("redirect_uri"):
-                redirect_uri = state_data.get("redirect_uri")
-        except Exception:
-            pass
+    state_data = _decode_state(state) if state else {}
+    frontend_url = state_data.get("origin")
+    redirect_uri = state_data.get("redirect_uri") or _redirect_uri(request, "linkedin")
 
-    if error or not code:
-        return RedirectResponse(_frontend_redirect(error=error or "access_denied", frontend_url=frontend_url))
+    if error:
+        print(f"[OAuth LinkedIn Callback] Error received from provider: {error}")
+        return RedirectResponse(_frontend_redirect(error=error, frontend_url=frontend_url))
+
+    if not code:
+        print("[OAuth LinkedIn Callback] Missing code in query parameters")
+        return RedirectResponse(_frontend_redirect(error="access_denied", frontend_url=frontend_url))
 
     if not settings.linkedin_oauth_client_id or not settings.linkedin_oauth_client_secret:
         return RedirectResponse(_frontend_redirect(error="linkedin_not_configured", frontend_url=frontend_url))
 
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
             token_res = client.post(
                 LINKEDIN_TOKEN_URL,
                 data={
@@ -202,15 +246,17 @@ def linkedin_callback(request: Request, code: str = None, error: str = None, sta
                 headers={"Content-Type": "application/x-www-form-urlencoded"}
             )
             if token_res.status_code != 200:
-                print(f"LinkedIn token exchange error: {token_res.status_code} {token_res.text}")
+                print(f"[OAuth LinkedIn Callback] Token exchange failed ({token_res.status_code}): {token_res.text}")
                 return RedirectResponse(_frontend_redirect(error="token_exchange_failed", frontend_url=frontend_url))
 
             token_data = token_res.json()
             access_token = token_data.get("access_token")
+            if not access_token:
+                return RedirectResponse(_frontend_redirect(error="no_access_token", frontend_url=frontend_url))
 
             userinfo_res = client.get(LINKEDIN_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
             if userinfo_res.status_code != 200:
-                print(f"LinkedIn userinfo error: {userinfo_res.status_code} {userinfo_res.text}")
+                print(f"[OAuth LinkedIn Callback] Userinfo fetch failed ({userinfo_res.status_code}): {userinfo_res.text}")
                 return RedirectResponse(_frontend_redirect(error="userinfo_failed", frontend_url=frontend_url))
             info = userinfo_res.json()
 
@@ -223,5 +269,5 @@ def linkedin_callback(request: Request, code: str = None, error: str = None, sta
         jwt_token = create_access_token(user.id, user.email)
         return RedirectResponse(_frontend_redirect(jwt_token, user.email, user.name or "", user.onboarding_completed, frontend_url=frontend_url))
     except Exception as e:
-        print(f"LinkedIn OAuth Exception: {e}")
-        return RedirectResponse(_frontend_redirect(error=str(e), frontend_url=frontend_url))
+        print(f"[OAuth LinkedIn Callback] Exception during authentication: {e}")
+        return RedirectResponse(_frontend_redirect(error="auth_internal_error", frontend_url=frontend_url))

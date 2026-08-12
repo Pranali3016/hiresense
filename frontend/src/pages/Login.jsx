@@ -33,13 +33,17 @@ export default function Login() {
       } else if (oauthError === 'google_not_configured') {
         setError('Google OAuth is not configured on the backend server.')
       } else if (oauthError === 'access_denied') {
-        setError('Google sign-in was cancelled or access denied.')
+        setError('Google sign-in was cancelled or access was denied.')
       } else if (oauthError === 'token_exchange_failed') {
-        setError("Google authentication token exchange failed. Please ensure 'http://127.0.0.1:8000/api/v1/oauth/google/callback' is registered as an Authorized Redirect URI in Google Cloud Console.")
+        setError("Google authentication token exchange failed. Please ensure 'https://hiresense-backend-53pg.onrender.com/api/v1/oauth/google/callback' is registered in Google Cloud Console.")
       } else if (oauthError === 'userinfo_failed') {
         setError('Could not retrieve user profile from Google. Please try again.')
+      } else if (oauthError === 'no_token') {
+        setError('Authentication session was incomplete. Please try signing in again.')
+      } else if (oauthError === 'auth_internal_error') {
+        setError('A temporary authentication issue occurred. Please try signing in again.')
       } else {
-        setError(`OAuth sign-in error: ${oauthError}`)
+        setError(`OAuth error: ${oauthError}`)
       }
     }
   }, [searchParams])
