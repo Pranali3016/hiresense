@@ -2,7 +2,7 @@ import secrets
 import json
 import base64
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -22,8 +22,25 @@ LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken"
 LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo"
 
 
-def _redirect_uri(provider: str) -> str:
-    return f"{settings.backend_base_url}/api/v1/oauth/{provider}/callback"
+def _get_backend_base_url(request: Request) -> str:
+    """Dynamically determine the backend's public base URL based on incoming request headers."""
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    
+    # If request is coming to a public host (e.g. onrender.com)
+    if host and "127.0.0.1" not in host and "localhost" not in host:
+        return f"{proto}://{host}".rstrip("/")
+    
+    # Check if backend_base_url is explicitly configured in settings
+    if settings.backend_base_url and "127.0.0.1" not in settings.backend_base_url and "localhost" not in settings.backend_base_url:
+        return settings.backend_base_url.rstrip("/")
+    
+    return f"{proto}://{host}".rstrip("/") if host else "http://127.0.0.1:8000"
+
+
+def _redirect_uri(request: Request, provider: str) -> str:
+    base = _get_backend_base_url(request)
+    return f"{base}/api/v1/oauth/{provider}/callback"
 
 
 def _frontend_redirect(token=None, email=None, name=None, onboarding_completed=None, error=None, frontend_url=None) -> str:
@@ -55,16 +72,17 @@ def _find_or_create_oauth_user(db: Session, email: str, name: str, provider: str
 
 
 @router.get("/google/login")
-def google_login(redirect_to: str = None):
+def google_login(request: Request, redirect_to: str = None):
     if not settings.google_oauth_client_id or not settings.google_oauth_client_secret:
         return RedirectResponse(_frontend_redirect(error="google_not_configured", frontend_url=redirect_to))
 
-    state_payload = {"origin": redirect_to} if redirect_to else {}
+    redirect_uri = _redirect_uri(request, "google")
+    state_payload = {"origin": redirect_to, "redirect_uri": redirect_uri} if redirect_to else {"redirect_uri": redirect_uri}
     state = base64.urlsafe_b64encode(json.dumps(state_payload).encode()).decode()
 
     params = {
         "client_id": settings.google_oauth_client_id,
-        "redirect_uri": _redirect_uri("google"),
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
         "access_type": "online",
@@ -76,12 +94,15 @@ def google_login(redirect_to: str = None):
 
 
 @router.get("/google/callback")
-def google_callback(code: str = None, error: str = None, state: str = None, db: Session = Depends(get_db)):
+def google_callback(request: Request, code: str = None, error: str = None, state: str = None, db: Session = Depends(get_db)):
     frontend_url = None
+    redirect_uri = _redirect_uri(request, "google")
     if state:
         try:
             state_data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
             frontend_url = state_data.get("origin")
+            if state_data.get("redirect_uri"):
+                redirect_uri = state_data.get("redirect_uri")
         except Exception:
             pass
 
@@ -97,7 +118,7 @@ def google_callback(code: str = None, error: str = None, state: str = None, db: 
                 "code": code,
                 "client_id": settings.google_oauth_client_id,
                 "client_secret": settings.google_oauth_client_secret,
-                "redirect_uri": _redirect_uri("google"),
+                "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             })
             if token_res.status_code != 200:
@@ -129,17 +150,18 @@ def google_callback(code: str = None, error: str = None, state: str = None, db: 
 
 
 @router.get("/linkedin/login")
-def linkedin_login(redirect_to: str = None):
+def linkedin_login(request: Request, redirect_to: str = None):
     if not settings.linkedin_oauth_client_id or not settings.linkedin_oauth_client_secret:
         return RedirectResponse(_frontend_redirect(error="linkedin_not_configured", frontend_url=redirect_to))
 
-    state_payload = {"origin": redirect_to, "rnd": secrets.token_urlsafe(8)} if redirect_to else {"rnd": secrets.token_urlsafe(8)}
+    redirect_uri = _redirect_uri(request, "linkedin")
+    state_payload = {"origin": redirect_to, "redirect_uri": redirect_uri, "rnd": secrets.token_urlsafe(8)} if redirect_to else {"redirect_uri": redirect_uri, "rnd": secrets.token_urlsafe(8)}
     state = base64.urlsafe_b64encode(json.dumps(state_payload).encode()).decode()
 
     params = {
         "response_type": "code",
         "client_id": settings.linkedin_oauth_client_id,
-        "redirect_uri": _redirect_uri("linkedin"),
+        "redirect_uri": redirect_uri,
         "scope": "openid profile email",
         "state": state,
     }
@@ -148,12 +170,15 @@ def linkedin_login(redirect_to: str = None):
 
 
 @router.get("/linkedin/callback")
-def linkedin_callback(code: str = None, error: str = None, state: str = None, db: Session = Depends(get_db)):
+def linkedin_callback(request: Request, code: str = None, error: str = None, state: str = None, db: Session = Depends(get_db)):
     frontend_url = None
+    redirect_uri = _redirect_uri(request, "linkedin")
     if state:
         try:
             state_data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
             frontend_url = state_data.get("origin")
+            if state_data.get("redirect_uri"):
+                redirect_uri = state_data.get("redirect_uri")
         except Exception:
             pass
 
@@ -170,7 +195,7 @@ def linkedin_callback(code: str = None, error: str = None, state: str = None, db
                 data={
                     "grant_type": "authorization_code",
                     "code": code,
-                    "redirect_uri": _redirect_uri("linkedin"),
+                    "redirect_uri": redirect_uri,
                     "client_id": settings.linkedin_oauth_client_id,
                     "client_secret": settings.linkedin_oauth_client_secret,
                 },
