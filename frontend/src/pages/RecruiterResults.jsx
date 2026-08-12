@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { ChevronDown, ChevronUp, Sparkles, CheckCircle2, AlertCircle, FileText } from 'lucide-react'
+import { ChevronDown, ChevronUp, Sparkles, CheckCircle2, AlertCircle, FileText, ArrowLeft, Users } from 'lucide-react'
 
 export default function RecruiterResults() {
   const { jobId } = useParams()
@@ -47,104 +47,131 @@ export default function RecruiterResults() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="flex items-center justify-between px-8 py-4 border-b border-gray-100 bg-white">
+    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
+      <nav className="flex items-center justify-between px-4 sm:px-8 py-3.5 sm:py-4 border-b border-gray-100 bg-white">
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-          <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-          <span className="font-semibold text-gray-900 text-lg">HireSense</span>
-          <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full ml-1">Recruiter</span>
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white font-black shadow-sm">
+            <Sparkles className="w-4 h-4 fill-current" />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-extrabold text-gray-900 text-lg tracking-tight">HireSense</span>
+            <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+              Recruiter
+            </span>
+          </div>
         </div>
-        <button onClick={() => navigate('/recruiter/analyze')} className="text-sm text-emerald-600 font-medium hover:underline">
-          + New ranking
+        <button
+          onClick={() => navigate('/recruiter/analyze')}
+          className="text-xs sm:text-sm text-emerald-600 font-bold hover:underline flex items-center gap-1"
+        >
+          <span>+ New Ranking</span>
         </button>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-8 py-10">
+      <main className="max-w-4xl mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-6">
         {loading && (
-          <div className="text-center py-20 text-sm text-gray-400">Loading results...</div>
+          <div className="text-center py-20 text-xs text-gray-400 font-semibold animate-pulse">
+            Loading candidate ranking matrix...
+          </div>
         )}
 
         {error && (
-          <div className="bg-red-50 text-red-600 text-sm rounded-xl p-4">{error}</div>
+          <div className="bg-red-50 border border-red-200 text-red-600 text-xs sm:text-sm rounded-2xl p-4 font-semibold">
+            {error}
+          </div>
         )}
 
         {data && (
           <>
-            <div className="mb-8">
-              <h1 className="text-2xl font-bold text-gray-900">Top Candidates</h1>
-              <p className="text-sm text-gray-500 mt-1">{data.job_title || 'Job posting'} · {data.candidates.length} candidates ranked</p>
+            <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <span className="text-[10px] sm:text-xs font-bold text-emerald-600 uppercase tracking-wider block mb-1">Hiring Benchmark</span>
+                <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 tracking-tight">{data.job_title || 'Ranked Candidates'}</h1>
+                <p className="text-xs text-gray-400 mt-0.5">{data.candidates.length} candidates evaluated and scored</p>
+              </div>
+              <button
+                onClick={() => navigate('/recruiter/analyze')}
+                className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition"
+              >
+                + Rank More Resumes
+              </button>
             </div>
 
             {data.errors && data.errors.length > 0 && (
-              <div className="bg-amber-50 text-amber-700 text-sm rounded-xl p-4 mb-6">
-                {data.errors.length} file{data.errors.length !== 1 ? 's' : ''} couldn't be processed: {data.errors.map(e => e.filename).join(', ')}
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-2xl p-4">
+                <strong>{data.errors.length} file{data.errors.length !== 1 ? 's' : ''} skipped:</strong> {data.errors.map(e => e.filename).join(', ')}
               </div>
             )}
 
             <div className="space-y-3">
               {data.candidates.map((c, i) => (
                 <div key={c.id} className="bg-white border border-gray-100 hover:border-emerald-200 rounded-2xl overflow-hidden shadow-sm transition-all duration-200">
-                  {/* Collapsed view: shows ONLY Name, Winner Tag (for top candidate), and Score */}
+                  {/* Collapsed Header */}
                   <div
                     onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
-                    className="flex items-center justify-between p-5 cursor-pointer hover:bg-gray-50/80 transition-all duration-200"
+                    className="flex items-center justify-between p-4 sm:p-5 cursor-pointer hover:bg-gray-50/80 transition-all duration-200 gap-3"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="font-semibold text-gray-900 text-base sm:text-lg truncate">
-                        {c.candidate_name}
-                      </span>
-                      {i === 0 && (
-                        <span className="inline-flex items-center gap-1.5 bg-amber-500/10 text-amber-700 text-xs font-bold px-3 py-1 rounded-full border border-amber-300/40 shadow-sm flex-shrink-0">
-                          🏆 Winner
-                        </span>
-                      )}
+                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-gray-100 text-gray-700 font-bold text-xs flex items-center justify-center shrink-0">
+                        #{i + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-gray-900 text-sm sm:text-base truncate">
+                            {c.candidate_name}
+                          </span>
+                          {i === 0 && (
+                            <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[10px] sm:text-xs font-bold px-2.5 py-0.5 rounded-full border border-amber-200">
+                              🏆 Winner
+                            </span>
+                          )}
+                        </div>
+                        {c.resume_filename && (
+                          <div className="text-[11px] text-gray-400 truncate max-w-xs sm:max-w-md mt-0.5">
+                            {c.resume_filename}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                      <div className={`px-3.5 py-1.5 rounded-full font-bold text-sm sm:text-base border ${getScoreBadgeStyle(c.overall_score)}`}>
-                        {c.overall_score}%
+                    <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+                      <div className={`px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full font-extrabold text-xs sm:text-sm border ${getScoreBadgeStyle(c.overall_score)}`}>
+                        {c.overall_score}% Match
                       </div>
                       {expandedId === c.id ? (
-                        <ChevronUp className="w-5 h-5 text-gray-400" />
+                        <ChevronUp className="w-4 h-4 text-gray-400" />
                       ) : (
-                        <ChevronDown className="w-5 h-5 text-gray-400" />
+                        <ChevronDown className="w-4 h-4 text-gray-400" />
                       )}
                     </div>
                   </div>
 
-                  {/* Expanded view: shows Why Score Match, Matched Skills, and Gaps */}
+                  {/* Expanded Details */}
                   {expandedId === c.id && (
-                    <div className="px-6 pb-6 border-t border-gray-100 bg-gray-50/50 pt-5 space-y-5 transition-all">
-                      {c.resume_filename && (
-                        <div className="flex items-center gap-2 text-xs text-gray-400">
-                          <FileText className="w-3.5 h-3.5" />
-                          <span>Resume file: {c.resume_filename}</span>
-                        </div>
-                      )}
-
+                    <div className="px-4 sm:px-6 pb-5 border-t border-gray-100 bg-gray-50/50 pt-4 space-y-4">
                       {/* Why Score Match */}
-                      <div className="bg-white border border-emerald-100/80 rounded-xl p-4 shadow-sm">
-                        <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 tracking-wide uppercase mb-2">
+                      <div className="bg-white border border-emerald-100/80 rounded-2xl p-4 shadow-sm">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 uppercase tracking-wide mb-1.5">
                           <Sparkles className="w-4 h-4 text-emerald-500" />
-                          Why Score Match ({c.overall_score}%)
+                          <span>AI Candidate Evaluation ({c.overall_score}%)</span>
                         </div>
-                        <p className="text-sm text-gray-700 leading-relaxed">
+                        <p className="text-xs sm:text-sm text-gray-700 leading-relaxed font-medium">
                           {c.explanation || 'No detailed explanation available.'}
                         </p>
                       </div>
 
                       {/* Matched Skills and Gaps Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
                         {/* Matched Skills */}
-                        <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
-                          <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 tracking-wide uppercase mb-3">
+                        <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 uppercase tracking-wide mb-2.5">
                             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                            Matched Skills ({c.matched_skills?.length || 0})
+                            <span>Matched Skills ({c.matched_skills?.length || 0})</span>
                           </div>
                           {c.matched_skills && c.matched_skills.length > 0 ? (
                             <div className="flex flex-wrap gap-1.5">
                               {c.matched_skills.map((s) => (
-                                <span key={s} className="text-xs bg-emerald-50 text-emerald-700 font-medium px-2.5 py-1 rounded-full border border-emerald-200/50">
+                                <span key={s} className="text-[11px] sm:text-xs bg-emerald-50 text-emerald-700 font-medium px-2.5 py-1 rounded-lg border border-emerald-200/50 capitalize">
                                   {s}
                                 </span>
                               ))}
@@ -155,15 +182,15 @@ export default function RecruiterResults() {
                         </div>
 
                         {/* Skill Gaps */}
-                        <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
-                          <div className="flex items-center gap-2 text-xs font-bold text-red-500 tracking-wide uppercase mb-3">
+                        <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-red-500 uppercase tracking-wide mb-2.5">
                             <AlertCircle className="w-4 h-4 text-red-500" />
-                            Gaps ({c.missing_skills?.length || 0})
+                            <span>Skill Gaps ({c.missing_skills?.length || 0})</span>
                           </div>
                           {c.missing_skills && c.missing_skills.length > 0 ? (
                             <div className="flex flex-wrap gap-1.5">
                               {c.missing_skills.map((s) => (
-                                <span key={s} className="text-xs bg-red-50 text-red-600 font-medium px-2.5 py-1 rounded-full border border-red-200/50">
+                                <span key={s} className="text-[11px] sm:text-xs bg-red-50 text-red-600 font-medium px-2.5 py-1 rounded-lg border border-red-200/50 capitalize">
                                   {s}
                                 </span>
                               ))}
@@ -180,8 +207,7 @@ export default function RecruiterResults() {
             </div>
           </>
         )}
-      </div>
+      </main>
     </div>
   )
 }
-
