@@ -110,7 +110,7 @@ def _find_or_create_oauth_user(db: Session, email: str, name: str, provider: str
 
 @router.get("/google/login")
 def google_login(request: Request, redirect_to: str = None):
-    if not settings.google_oauth_client_id or not settings.google_oauth_client_secret:
+    if not settings.effective_google_client_id or not settings.effective_google_client_secret:
         return RedirectResponse(_frontend_redirect(error="google_not_configured", frontend_url=redirect_to))
 
     redirect_uri = _redirect_uri(request, "google")
@@ -122,7 +122,7 @@ def google_login(request: Request, redirect_to: str = None):
     state = _encode_state(state_payload)
 
     params = {
-        "client_id": settings.google_oauth_client_id,
+        "client_id": settings.effective_google_client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
@@ -148,7 +148,7 @@ def google_callback(request: Request, code: str = None, error: str = None, state
         print("[OAuth Google Callback] Missing code in query parameters")
         return RedirectResponse(_frontend_redirect(error="access_denied", frontend_url=frontend_url))
 
-    if not settings.google_oauth_client_id or not settings.google_oauth_client_secret:
+    if not settings.effective_google_client_id or not settings.effective_google_client_secret:
         return RedirectResponse(_frontend_redirect(error="google_not_configured", frontend_url=frontend_url))
 
     try:
@@ -156,8 +156,8 @@ def google_callback(request: Request, code: str = None, error: str = None, state
             # 1. Exchange authorization code for token
             token_res = client.post(GOOGLE_TOKEN_URL, data={
                 "code": code,
-                "client_id": settings.google_oauth_client_id,
-                "client_secret": settings.google_oauth_client_secret,
+                "client_id": settings.effective_google_client_id,
+                "client_secret": settings.effective_google_client_secret,
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             })
