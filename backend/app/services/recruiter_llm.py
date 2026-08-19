@@ -128,25 +128,31 @@ def _call_sambanova_llm(prompt: str, json_mode: bool = True, max_tokens: int = 1
 
 
 def _call_groq_llm(prompt: str, json_mode: bool = True, max_tokens: int = 1500) -> Optional[str]:
-    """Execute LLM call using Groq (llama-3.3-70b-versatile)."""
+    """Execute LLM call using Groq (llama-3.3-70b-versatile with llama-3.1-8b-instant fallback)."""
     if not settings.groq_api_key or settings.groq_api_key.startswith("your_"):
         return None
-    try:
-        client = Groq(api_key=settings.groq_api_key, timeout=20.0, max_retries=2)
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": "You are HireSense Enterprise Recruiter AI, an expert technical hiring advisor and talent intelligence engine."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"} if json_mode else None,
-            temperature=0.3,
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logger.warning(f"[Groq LLM] Call failed: {e}")
-        return None
+    
+    groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]
+    for model_name in groq_models:
+        try:
+            client = Groq(api_key=settings.groq_api_key, timeout=15.0, max_retries=1)
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": "You are HireSense Enterprise Recruiter AI, an expert technical hiring advisor and talent intelligence engine."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"} if json_mode else None,
+                temperature=0.3,
+                max_tokens=max_tokens,
+            )
+            content = response.choices[0].message.content.strip()
+            if content:
+                return content
+        except Exception as e:
+            logger.warning(f"[Groq LLM ({model_name})] Call failed: {e}")
+            continue
+    return None
 
 
 def _call_gemini_llm(prompt: str, json_mode: bool = True) -> Optional[str]:

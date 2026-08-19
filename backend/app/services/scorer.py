@@ -68,17 +68,10 @@ def generate_explanation_with_groq(
     if not settings.groq_api_key or settings.groq_api_key.startswith("your_"):
         return generate_rule_based_explanation(jd_data, matched_skills, missing_skills, overall_score)
 
-    try:
-        llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            api_key=settings.groq_api_key,
-            temperature=0.3,
-            request_timeout=15.0,
-            max_retries=2
-        )
-        prompt = PromptTemplate(
-            input_variables=["job_title", "overall_score", "matched_skills", "missing_skills", "experience_years", "required_experience"],
-            template="""You are an expert career advisor helping a job seeker understand their resume match.
+    groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    prompt = PromptTemplate(
+        input_variables=["job_title", "overall_score", "matched_skills", "missing_skills", "experience_years", "required_experience"],
+        template="""You are an expert career advisor helping a job seeker understand their resume match.
 
 Job Role: {job_title}
 Overall Match Score: {overall_score}/100
@@ -94,22 +87,34 @@ Write a 3-4 sentence analysis that:
 4. Gives one specific actionable tip to improve the score
 
 Be direct, encouraging, and specific. Write in paragraph form. No bullet points. You must use the exact score {overall_score} provided -- never invent or recompute your own score."""
-        )
-        chain = prompt | llm | StrOutputParser()
-        explanation = _invoke_groq_chain(chain, {
-            "job_title": jd_data.get("job_title", "this role")[:60],
-            "overall_score": overall_score,
-            "matched_skills": ", ".join(matched_skills[:8]) if matched_skills else "none",
-            "missing_skills": ", ".join(missing_skills[:5]) if missing_skills else "none",
-            "experience_years": resume_data.get("experience_years", 0),
-            "required_experience": jd_data.get("required_experience_years", 0)
-        })
-        explanation = explanation.strip()
-        explanation = re.sub(r'\d+(\.\d+)?\s*/\s*100', f'{overall_score}/100', explanation)
-        return explanation
-    except Exception as e:
-        logger.warning(f"Groq explanation failed, using rule-based fallback: {e}")
-        return generate_rule_based_explanation(jd_data, matched_skills, missing_skills, overall_score)
+    )
+
+    for model_name in groq_models:
+        try:
+            llm = ChatGroq(
+                model=model_name,
+                api_key=settings.groq_api_key,
+                temperature=0.3,
+                request_timeout=12.0,
+                max_retries=1
+            )
+            chain = prompt | llm | StrOutputParser()
+            explanation = _invoke_groq_chain(chain, {
+                "job_title": jd_data.get("job_title", "this role")[:60],
+                "overall_score": overall_score,
+                "matched_skills": ", ".join(matched_skills[:8]) if matched_skills else "none",
+                "missing_skills": ", ".join(missing_skills[:5]) if missing_skills else "none",
+                "experience_years": resume_data.get("experience_years", 0),
+                "required_experience": jd_data.get("required_experience_years", 0)
+            })
+            explanation = explanation.strip()
+            explanation = re.sub(r'\d+(\.\d+)?\s*/\s*100', f'{overall_score}/100', explanation)
+            return explanation
+        except Exception as e:
+            logger.warning(f"Groq explanation ({model_name}) failed: {e}")
+            continue
+
+    return generate_rule_based_explanation(jd_data, matched_skills, missing_skills, overall_score)
 
 
 def generate_rule_based_explanation(
