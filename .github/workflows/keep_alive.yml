@@ -1,0 +1,15 @@
+name: Supabase & Render Keep Alive
+
+on:
+  schedule:
+    - cron: '0 0 */3 * *'  # Automatically runs every 3 days at midnight UTC
+  workflow_dispatch:        # Allows manual trigger anytime from GitHub Actions tab
+
+jobs:
+  keep_alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping HireSense Production Backend
+        run: |
+          echo "Pinging HireSense live health endpoint..."
+          curl -s -f https://hiresense-1-euvy.onrender.com/health || echo "Ping completed"
