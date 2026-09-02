@@ -15,7 +15,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("hiresense.api")
 
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables initialized successfully.")
+except Exception as db_err:
+    logger.warning(f"Database initialization deferred (Supabase unpausing or connection issue): {db_err}")
 
 app = FastAPI(
     title="HireSense API",
